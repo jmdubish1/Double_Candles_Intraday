@@ -9,7 +9,10 @@ from tensorflow.keras.layers import LSTM, Dense, Dropout, Input, Concatenate, Ba
 from tensorflow.keras.optimizers import Adam
 from keras.regularizers import l2, l1
 from tensorflow.keras.initializers import GlorotUniform
-from tensorflow.keras.callbacks import ReduceLROnPlateau
+from tensorflow.keras.callbacks import ReduceLROnPlateau, Callback
+from sklearn.utils.class_weight import compute_class_weight
+import matplotlib.pyplot as plt
+import neural_network.nn_tools.math_tools as mt
 
 
 class LstmOptModel:
@@ -36,22 +39,29 @@ class LstmOptModel:
     def set_intra_len(self, intra_len):
         self.intra_len = intra_len
 
-    def build_compile_model(self, daily_data, intraday_data):
+    def build_compile_model(self, lstm_data):
         # print(full_data.prev_model_save)
         # if not full_data.prev_model_loaded:
-        print('Building New Model')
+        print('\nBuilding New Model')
         self.set_scheduler()
-        self.build_lstm_model(daily_data, intraday_data)
-        self.compile_model()
+        self.build_lstm_model(lstm_data.dailydata, lstm_data.intradata)
+        self.compile_model(lstm_data)
 
-    def compile_model(self):
-        self.optimizer = Adam(.01)
-        # self.model = Model(inputs=self.input_layer,
-        #                    outputs=self.float_output)
+    def compile_model(self, lstm_data):
+        self.optimizer = Adam(.00075)
+
+        class_weights = compute_class_weight('balanced',
+                                             classes=np.unique(lstm_data.y_train_wl_df['Win']),
+                                             y=lstm_data.y_train_wl_df['Win'])
+        class_weight_dict_wl = {i: weight for i, weight in enumerate(class_weights)}
+        print(f'Class Weights: {class_weight_dict_wl}\n')
+
+        loss_fn_wl = weighted_categorical_crossentropy(class_weights)
+
         self.model = Model(inputs=[self.input_layer_daily, self.input_layer_intraday],
                            outputs=[self.win_loss_output, self.float_output])
         self.model.compile(optimizer=self.optimizer,
-                           loss={'wl_classification': 'categorical_crossentropy',
+                           loss={'wl_classification': loss_fn_wl,
                                  'pnl_output': 'mse'},
                            metrics={'wl_classification': 'accuracy',
                                     'pnl_output': 'mse'})
@@ -75,12 +85,12 @@ class LstmOptModel:
                        recurrent_activation='sigmoid',
                        return_sequences=True,  # Keep this to pass the sequence
                        kernel_initializer=GlorotUniform(),
-                       kernel_regularizer=l2(0.025),
+                       kernel_regularizer=l2(0.005),
                        name='lstm_d1')(self.input_layer_daily)
 
         batch_n1 = BatchNormalization(name='batch_n1')(lstm_d1)
 
-        drop_d1 = Dropout(0.1, name='drop_d1')(batch_n1)
+        drop_d1 = Dropout(0.05, name='drop_d1')(batch_n1)
 
         # Final LSTM layer for daily data - set return_sequences=False
         lstm_d2 = LSTM(units=32,
@@ -88,53 +98,58 @@ class LstmOptModel:
                        recurrent_activation='sigmoid',
                        return_sequences=False,
                        kernel_initializer=GlorotUniform(),
-                       kernel_regularizer=l2(0.01),
+                       kernel_regularizer=l2(0.005),
                        name='lstm_d2')(drop_d1)
 
         dense_d1 = Dense(units=32,
                          activation='tanh',
                          kernel_initializer=GlorotUniform(),
+                         kernel_regularizer=l2(0.005),
                          name='dense_d1')(lstm_d2)
 
         # Intraday LSTM branch
         self.input_layer_intraday = Input(self.input_shapes[1])
-        lstm_i1 = LSTM(units=128,
+        lstm_i1 = LSTM(units=256,
                        activation='tanh',
                        recurrent_activation='sigmoid',
                        return_sequences=True,
                        kernel_initializer=GlorotUniform(),
-                       kernel_regularizer=l2(0.01),
+                       kernel_regularizer=l2(0.005),
                        name='lstm_i1')(self.input_layer_intraday)
 
         batch_n2 = BatchNormalization(name='batch_n2')(lstm_i1)
 
-        drop_i1 = Dropout(0.1, name='drop_i1')(batch_n2)
+        drop_i1 = Dropout(0.05, name='drop_i1')(batch_n2)
 
         # Final LSTM layer for intraday data - set return_sequences=False
-        lstm_i2 = LSTM(units=64,
+        lstm_i2 = LSTM(units=192,
                        activation='tanh',
                        recurrent_activation='sigmoid',
                        return_sequences=False,
                        kernel_initializer=GlorotUniform(),
-                       kernel_regularizer=l2(0.01),
+                       kernel_regularizer=l2(0.005),
                        name='lstm_i2')(drop_i1)
 
-        dense_i1 = Dense(units=64,
+        dense_i1 = Dense(units=96,
                          activation='tanh',
                          kernel_initializer=GlorotUniform(),
+                         kernel_regularizer=l2(0.005),
                          name='dense_i1')(lstm_i2)
 
         # Combine the branches
         merged_lstm = Concatenate()([dense_d1, dense_i1])
 
-        dense_m1 = Dense(units=32,
+        drop_m1 = Dropout(0.05, name='drop_m1')(merged_lstm)
+
+        dense_m1 = Dense(units=48,
                          activation='tanh',
                          kernel_initializer=GlorotUniform(),
-                         name='dense_m1')(merged_lstm)
+                         kernel_regularizer=l2(0.005),
+                         name='dense_m1')(drop_m1)
 
         # Output layers
         self.win_loss_output = Dense(2,
-                                     activation='tanh',
+                                     activation='softmax',
                                      name='wl_classification')(dense_m1)
 
         self.float_output = Dense(units=1,
@@ -142,12 +157,16 @@ class LstmOptModel:
                                   name='pnl_output')(dense_m1)
 
     def train_model(self, lstm_data):
-        lr_scheduler = ReduceLROnPlateau(monitor='loss', factor=0.75, patience=1, min_lr=1e-6, verbose=1)
+        lr_scheduler = ReduceLROnPlateau(monitor='loss', factor=0.95, patience=2, min_lr=.00001, verbose=1)
+        live_plot = LivePlotLosses()
         data_gen = CustomDataGenerator(lstm_data, self, self.batch_s)
+
         self.model.fit(data_gen,
                        epochs=self.epochs,
                        verbose=1,
-                       callbacks=[lr_scheduler])
+                       callbacks=[lr_scheduler, live_plot])
+
+        return live_plot
 
     def evaluate_model(self, lstm_data):
         test_generator = CustomDataGenerator(lstm_data, self, self.batch_s, train=False)
@@ -161,7 +180,7 @@ class LstmOptModel:
         print(f'WL Classification Acc: {wl_accuracy:.4f}')
         print(f'PnL Output MSE: {pnl_output_mse:.4f}')
 
-    def predict_data(self, lstm_data):
+    def predict_data(self, lstm_data, param, side, model_plot):
         test_generator = CustomDataGenerator(lstm_data, self, self.batch_s, train=False)
         predictions = self.model.predict(test_generator, verbose=1)
 
@@ -170,14 +189,22 @@ class LstmOptModel:
         wl_predictions = lstm_data.y_wl_onehot_scaler.inverse_transform(wl_predictions)
         pnl_predictions = lstm_data.y_pnl_scaler.inverse_transform(pnl_predictions)
 
-        print("\nWin/Loss Predictions shape:", wl_predictions.shape)
-        print("PnL Predictions shape:", pnl_predictions.shape)
-
         lstm_data.y_test_wl_df['Pred'] = wl_predictions[:, 0]
+        lstm_data.y_test_wl_df = (
+            lstm_data.y_test_pnl_df[['DateTime', 'PnL']].merge(lstm_data.y_test_wl_df, on='DateTime'))
         lstm_data.y_test_pnl_df['Pred'] = pnl_predictions[:, 0]
 
-        print(f'\nFirst 10 Win/Loss predictions:, {lstm_data.y_test_wl_df.tail(15)}')
-        print(f'\nFirst 10 PnL predictions:, {lstm_data.y_test_pnl_df.tail(15)}')
+        lstm_data.y_test_pnl_df = mt.summary_predicted_pnl(lstm_data.y_test_pnl_df)
+        lstm_data.y_test_wl_df = mt.summary_predicted_wl(lstm_data.y_test_wl_df)
+
+        save_loc = \
+            r'C:\Users\jmdub\Documents\Trading\Futures\Strategy Info\Double_Candles\ATR\NQ\15min\15min_test_20years\Plots'
+        lstm_data.y_test_pnl_df.to_excel(f'{save_loc}\\predictions_{side}_{param}_pnl.xlsx')
+        lstm_data.y_test_wl_df.to_excel(f'{save_loc}\\predictions_{side}_{param}_wl.xlsx')
+
+        save_path = os.path.join(save_loc, f'nn_performance_plot_{param}_{side}.png')
+        model_plot.fig.savefig(save_path)
+        print(f"Final plot saved to: {save_path}")
 
 
 """--------------------------------------------Custom Callbacks Work-------------------------------------------------"""
@@ -219,6 +246,9 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
         return int(np.ceil(self.n_samples / self.batch_size))
 
     def __getitem__(self, index):
+        if index == 0:
+            np.random.shuffle(self.sample_ind_list)
+
         start_ind = index * self.batch_size
         end_ind = (index + 1) * self.batch_size
         train_inds = self.sample_ind_list[start_ind:end_ind]
@@ -235,7 +265,7 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
         if self.train_test:
             self.sample_ind_list = list(self.lstm_data.y_train_pnl_df.index)
             self.n_samples = len(self.lstm_data.trade_data.y_train_df)
-            np.random.shuffle(self.sample_ind_list)
+
         else:
             self.sample_ind_list = list(self.lstm_data.y_test_pnl_df.index)
             self.n_samples = len(self.lstm_data.trade_data.y_test_df)
@@ -244,4 +274,67 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
         # Optionally shuffle the data at the end of each epoch
         if self.train_test:
             np.random.shuffle(self.sample_ind_list)
+            # print(f'W-L Ratio: {self.lstm_data.wl_ratio} : Diff')
 
+
+def weighted_categorical_crossentropy(class_weights):
+    # Create a loss function that can accept class weights
+    def loss(y_true, y_pred):
+        y_true = tf.cast(y_true, tf.float32)
+        weights = tf.reduce_sum(class_weights * y_true, axis=-1)
+        return tf.reduce_mean(weights * tf.keras.losses.categorical_crossentropy(y_true, y_pred))
+
+    return loss
+
+
+class LivePlotLosses(Callback):
+    def __init__(self):
+        super(LivePlotLosses, self).__init__()
+        self.epochs = []
+        self.losses = []
+        self.wl_classification_losses = []
+        self.pnl_output_losses = []
+        self.wl_classification_accuracies = []
+        self.pnl_output_mses = []
+
+        plt.ion()  # Interactive mode on for live plotting
+        self.fig, self.axs = plt.subplots(2, 2, figsize=(10, 6))  # Create a 2x2 grid of subplots
+        self.fig.tight_layout()
+
+    def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+        self.epochs.append(epoch + 1)  # Accumulate epochs
+        self.losses.append(logs.get('loss'))
+        self.wl_classification_losses.append(logs.get('wl_classification_loss'))
+        self.pnl_output_losses.append(logs.get('pnl_output_loss'))
+        self.wl_classification_accuracies.append(logs.get('wl_classification_accuracy'))
+        self.pnl_output_mses.append(logs.get('pnl_output_mse'))
+
+        # Clear previous plots
+        for ax in self.axs.flat:
+            ax.clear()
+
+        # Plot accumulated data for all completed epochs
+        self.axs[0, 0].plot(self.epochs, self.losses, label="Total Loss", marker='o')
+        self.axs[0, 0].set_title("Total Loss")
+        self.axs[0, 0].legend()
+
+        self.axs[0, 1].plot(self.epochs, self.wl_classification_losses, label="WL Classification Loss", marker='o')
+        self.axs[0, 1].set_title("WL Classification Loss")
+        self.axs[0, 1].legend()
+
+        self.axs[1, 0].plot(self.epochs, self.wl_classification_accuracies, label="WL Classification Accuracy", marker='o')
+        self.axs[1, 0].set_title("WL Classification Accuracy")
+        self.axs[1, 0].legend()
+
+        self.axs[1, 1].plot(self.epochs, self.pnl_output_mses, label="PnL Output MSE", marker='o')
+        self.axs[1, 1].set_title("PnL Output MSE")
+        self.axs[1, 1].legend()
+
+        # Draw the updated plots and pause for a short moment to update the plot
+        self.fig.canvas.draw()
+        plt.pause(0.001)  # Pause briefly to ensure the plot refreshes
+
+    def on_train_end(self, logs=None):
+        plt.ioff()  # Turn off interactive mode at the end
+        plt.close()

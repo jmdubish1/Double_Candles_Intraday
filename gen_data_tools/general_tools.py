@@ -88,7 +88,7 @@ def pad_to_length(arr, target_length):
         padding_needed = target_length - current_length
 
         if padding_needed > 0:
-            padded_column = np.pad(column, (padding_needed, 0), 'constant')
+            padded_column = np.pad(column, (0, padding_needed), 'constant')
         else:
             padded_column = column
 

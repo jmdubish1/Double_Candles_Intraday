@@ -35,6 +35,7 @@ class LstmDataHandler:
         self.y_wl_onehot_scaler = None
 
         self.intra_len = 0
+        self.wl_ratio = 0
 
     def get_trade_data(self):
         self.trade_data.get_trade_data()
@@ -75,10 +76,15 @@ class LstmDataHandler:
 
         self.dailydata = (
             self.dailydata)[self.dailydata['Date'] >= pd.to_datetime(self.data_params['start_train_date']).date()]
+        self.dailydata['Date'] = pd.to_datetime(self.dailydata['Date'])
+        self.dailydata['Year'] = self.dailydata['Date'].dt.year
+        self.dailydata['Month'] = self.dailydata['Date'].dt.month
+        self.dailydata['Day'] = self.dailydata['Date'].dt.day
+        self.dailydata['Date'] = self.dailydata['Date'].dt.date
         self.finish_data_prep()
 
     def load_prep_intra_data(self):
-        print('\nLoading Daily Data')
+        print('\nLoading Intraday Data')
         intra_dfs = []
         for sec in [self.data_params['security']] + self.data_params['other_securities']:
             print(f'...{sec}')
@@ -109,6 +115,10 @@ class LstmDataHandler:
         self.intradata = (
             self.intradata)[self.intradata['DateTime'].dt.date >=
                             pd.to_datetime(self.data_params['start_train_date']).date()]
+        self.intradata['DateTime'] = pd.to_datetime(self.intradata['DateTime'])
+        self.intradata['Year'] = self.intradata['DateTime'].dt.year
+        self.intradata['Month'] = self.intradata['DateTime'].dt.month
+        self.intradata['Day'] = self.intradata['DateTime'].dt.day
         self.finish_data_prep(daily=False)
 
     def finish_data_prep(self, daily=True):
@@ -161,21 +171,22 @@ class LstmDataHandler:
 
     def scale_x_data(self):
         print('\nScaling X Data')
-        self.intra_scaler = RobustScaler(quantile_range=(3, 97))
-
+        # self.intra_scaler = RobustScaler(quantile_range=(3, 97))
+        self.intra_scaler = StandardScaler()
         self.x_train_intra.iloc[:, 1:] = (
             self.intra_scaler.fit_transform(self.x_train_intra.iloc[:, 1:].values.astype('float32')))
         self.x_test_intra.iloc[:, 1:] = (
             self.intra_scaler.transform(self.x_test_intra.iloc[:, 1:].values.astype('float32')))
 
-        self.daily_scaler = RobustScaler()
+        # self.daily_scaler = RobustScaler()
+        self.daily_scaler = StandardScaler()
         self.dailydata.iloc[:, 1:] = (
             self.intra_scaler.fit_transform(self.dailydata.iloc[:, 1:].values.astype('float32')))
 
     def scale_y_pnl_data(self):
         print('\nScaling Y-pnl Data')
-        self.y_pnl_scaler = RobustScaler(quantile_range=(5, 95))
-
+        self.y_pnl_scaler = RobustScaler(quantile_range=(20, 80))
+        # self.y_pnl_scaler = StandardScaler()
         self.y_train_pnl_df = self.trade_data.y_train_df.iloc[:, :2]
         pnl_scaled = (
             self.y_pnl_scaler.fit_transform(self.y_train_pnl_df.iloc[:, 1].values.astype('float32').reshape(-1, 1)))
@@ -211,14 +222,19 @@ class LstmDataHandler:
             try:
                 trade_dt = y_pnl_df.loc[train_ind, 'DateTime']
 
-                x_daily_input = self.dailydata[self.dailydata['Date'] < trade_dt.date()].tail(23).values[:, 1:]
-                x_daily_input = gt.pad_to_length(x_daily_input, daily_len)
+                x_daily_input = self.dailydata[self.dailydata['Date']< trade_dt.date()].tail(32).values[:, 1:]
+                x_daily_input = gt.pad_to_length(x_daily_input, 32)
 
+                # x_intra_input = x_intraday[(x_intraday['DateTime'] <= trade_dt) &
+                #                            (x_intraday['DateTime'] >=
+                #                             trade_dt.replace(hour=self.data_params['start_hour'],
+                #                                              minute=self.data_params['start_minute']))].values[:, 1:]
                 x_intra_input = x_intraday[(x_intraday['DateTime'] <= trade_dt) &
                                            (x_intraday['DateTime'] >=
                                             trade_dt.replace(hour=self.data_params['start_hour'],
-                                                             minute=self.data_params['start_minute']))].values[:, 1:]
-                x_intra_input = gt.pad_to_length(x_intra_input, intra_len)
+                                                             minute=self.data_params['start_minute']))]
+                x_intra_input = x_intra_input.tail(32).values[:, 1:]
+                x_intra_input = gt.pad_to_length(x_intra_input, 32)
 
                 y_pnl_input = np.array([y_pnl_df[y_pnl_df['DateTime'] == trade_dt].values[0, 1]])
 
@@ -270,3 +286,9 @@ class LstmDataHandler:
                 yield x_day_arr, x_intra_arr, y_pnl_arr, y_wl_arr
 
             break
+
+    def win_loss_information(self):
+        wins = sum(self.y_train_wl_df['Win'])
+        losses = sum(self.y_train_wl_df['Loss'])
+        self.wl_ratio = 1 - wins/(wins + losses)
+        print(f'\nWin-Loss Ratio to Beat: {self.wl_ratio:.4f}')

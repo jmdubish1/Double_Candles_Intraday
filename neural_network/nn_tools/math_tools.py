@@ -58,9 +58,9 @@ def add_high_low_diff(df, other_sec, sec_name):
     securities = other_sec + [sec_name]
     for sec in securities:
         df[f'{sec}_HL_diff'] = (
-                df[f'{sec}_High'] - df[f'{sec}_Low'])/((df[f'{sec}_High'] + df[f'{sec}_Low'])/2)
+                df[f'{sec}_High'] - df[f'{sec}_Low'])/((df[f'{sec}_High'] + df[f'{sec}_Low'])/2)*1000
         df[f'{sec}_OC_diff'] = (
-                df[f'{sec}_Open'] - df[f'{sec}_Close'])/((df[f'{sec}_Open'] + df[f'{sec}_Close'])/2)
+                df[f'{sec}_Open'] - df[f'{sec}_Close'])/((df[f'{sec}_Open'] + df[f'{sec}_Close'])/2)*1000
 
         df[f'{sec}_HL_Ratio'] = df[f'{sec}_HL_diff']/df[f'{sec}_HL_diff'].shift(1)
         df[f'{sec}_OC_Ratio'] = df[f'{sec}_OC_diff'] / df[f'{sec}_OC_diff'].shift(1)
@@ -93,6 +93,47 @@ def smooth_vol_oi(df, securities):
         df[f'{sec}_OpenInt'] = oi_avg.fillna(0)
 
     return df
+
+
+def calculate_max_drawdown(pnl_series):
+    pnl_series = pnl_series.values
+    max_drawdown = []
+    peak = pnl_series[0]  # Initial peak
+
+    for pnl in pnl_series:
+        if pnl > peak:
+            peak = pnl  # Update peak if current pnl is higher
+        drawdown = (peak - pnl) / peak  # Calculate drawdown
+        max_drawdown.append(drawdown)
+
+    return max_drawdown
+
+
+def summary_predicted_pnl(df):
+    df['Algo_PnL_Total'] = df['PnL'].cumsum()
+    df['Algo_MaxDraw'] = calculate_max_drawdown(df['Algo_PnL_Total'])
+    df['Pred_PnL'] = np.where(df['Pred'] < 0, 0, df['PnL'])
+    df['Pred_PnL_Total'] = df['Pred_PnL'].cumsum()
+    df['Pred_MaxDraw'] = calculate_max_drawdown(df['Pred_PnL_Total'])
+    df['Pred_PnL_Adj'] = df['Pred_PnL']*(max(df['Algo_MaxDraw'])/max(df['Pred_MaxDraw']))
+    df.fillna(0, inplace=True)
+
+    return df
+
+
+def summary_predicted_wl(df):
+    df['Algo_PnL_Total'] = df['PnL'].cumsum()
+    df['Algo_MaxDraw'] = calculate_max_drawdown(df['Algo_PnL_Total'])
+    df['Pred_PnL'] = np.where(df['Pred'] == 'Loss', 0, df['PnL'])
+    df['Pred_PnL_Total'] = df['Pred_PnL'].cumsum()
+    df['Pred_MaxDraw'] = calculate_max_drawdown(df['Pred_PnL_Total'])
+    df['Pred_PnL_Adj'] = df['Pred_PnL_Total']*(max(df['Algo_MaxDraw'])/max(df['Pred_MaxDraw']))
+    df.fillna(0, inplace=True)
+
+    return df
+
+
+
 
 
 
