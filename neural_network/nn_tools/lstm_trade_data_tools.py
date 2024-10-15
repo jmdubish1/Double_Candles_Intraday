@@ -35,13 +35,13 @@ class TradeData:
         self.trade_df = (
             self.trade_df)[self.trade_df['DateTime'].dt.date >=
                            pd.to_datetime(self.setup_dict['start_train_date']).date()]
-        self.set_pnl()
 
-    def set_pnl(self):
-        self.trade_df['PnL'] = np.where(self.trade_df['side'] == 'Bear',
+    def set_pnl(self, side):
+        self.trade_df['PnL'] = np.where(self.trade_df['side'] == side,
                                         self.trade_df['entryPrice'] - self.trade_df['exitPrice'],
                                         self.trade_df['exitPrice'] - self.trade_df['entryPrice'])
         self.trade_df['Win_Loss'] = np.where(self.trade_df['PnL'] > 0, 'Win', 'Loss')
+        self.trade_df['PnL'] = self.trade_df['PnL']/self.trade_df['entryPrice']*100
 
     def create_working_df(self, paramset_id=2, side='Bull'):
         print('\nCreating Trades Work Df')

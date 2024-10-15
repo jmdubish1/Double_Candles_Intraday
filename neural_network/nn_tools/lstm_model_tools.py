@@ -188,17 +188,26 @@ class LstmOptModel:
 
         wl_predictions = lstm_data.y_wl_onehot_scaler.inverse_transform(wl_predictions)
         pnl_predictions = lstm_data.y_pnl_scaler.inverse_transform(pnl_predictions)
+        lstm_data.y_test_pnl_df['PnL'] = lstm_data.y_pnl_scaler.inverse_transform(lstm_data.y_test_pnl_df['PnL'])
 
         lstm_data.y_test_wl_df['Pred'] = wl_predictions[:, 0]
+
         lstm_data.y_test_wl_df = (
             lstm_data.y_test_pnl_df[['DateTime', 'PnL']].merge(lstm_data.y_test_wl_df, on='DateTime'))
         lstm_data.y_test_pnl_df['Pred'] = pnl_predictions[:, 0]
 
-        lstm_data.y_test_pnl_df = mt.summary_predicted_pnl(lstm_data.y_test_pnl_df)
-        lstm_data.y_test_wl_df = mt.summary_predicted_wl(lstm_data.y_test_wl_df)
+        lstm_data.y_test_pnl_df = mt.summary_predicted(lstm_data.y_test_pnl_df)
+        lstm_data.y_test_wl_df = mt.summary_predicted(lstm_data.y_test_wl_df, wl=True)
+
+        lstm_data.y_test_pnl_df = lstm_data.adjust_back_data(lstm_data.y_test_pnl_df)
+
+        sec = lstm_data.data_params['security']
+        timeframe = lstm_data.data_params['time_frame']
 
         save_loc = \
-            r'C:\Users\jmdub\Documents\Trading\Futures\Strategy Info\Double_Candles\ATR\NQ\15min\15min_test_20years\Plots'
+            r'C:\Users\jmdub\Documents\Trading\Futures\Strategy Info\Double_Candles\ATR'
+        save_loc = f'{save_loc}\\{sec}\\{timeframe}min\\{timeframe}min_test_20years\\Plots'
+        os.makedirs(save_loc, exist_ok=True)
         lstm_data.y_test_pnl_df.to_excel(f'{save_loc}\\predictions_{side}_{param}_pnl.xlsx')
         lstm_data.y_test_wl_df.to_excel(f'{save_loc}\\predictions_{side}_{param}_wl.xlsx')
 

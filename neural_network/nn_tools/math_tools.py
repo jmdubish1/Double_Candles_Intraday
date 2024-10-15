@@ -109,25 +109,17 @@ def calculate_max_drawdown(pnl_series):
     return max_drawdown
 
 
-def summary_predicted_pnl(df):
+def summary_predicted(df, wl=False):
+    df['PnL'] = df['PnL']*df['Close']
     df['Algo_PnL_Total'] = df['PnL'].cumsum()
     df['Algo_MaxDraw'] = calculate_max_drawdown(df['Algo_PnL_Total'])
-    df['Pred_PnL'] = np.where(df['Pred'] < 0, 0, df['PnL'])
+    if wl:
+        df['Pred_PnL'] = np.where(df['Pred'] == 'Loss', 0, df['PnL'])
+    else:
+        df['Pred_PnL'] = np.where(df['Pred'] < 0, 0, df['PnL'])
     df['Pred_PnL_Total'] = df['Pred_PnL'].cumsum()
     df['Pred_MaxDraw'] = calculate_max_drawdown(df['Pred_PnL_Total'])
     df['Pred_PnL_Adj'] = df['Pred_PnL']*(max(df['Algo_MaxDraw'])/max(df['Pred_MaxDraw']))
-    df.fillna(0, inplace=True)
-
-    return df
-
-
-def summary_predicted_wl(df):
-    df['Algo_PnL_Total'] = df['PnL'].cumsum()
-    df['Algo_MaxDraw'] = calculate_max_drawdown(df['Algo_PnL_Total'])
-    df['Pred_PnL'] = np.where(df['Pred'] == 'Loss', 0, df['PnL'])
-    df['Pred_PnL_Total'] = df['Pred_PnL'].cumsum()
-    df['Pred_MaxDraw'] = calculate_max_drawdown(df['Pred_PnL_Total'])
-    df['Pred_PnL_Adj'] = df['Pred_PnL_Total']*(max(df['Algo_MaxDraw'])/max(df['Pred_MaxDraw']))
     df.fillna(0, inplace=True)
 
     return df

@@ -19,6 +19,7 @@ class LstmDataHandler:
 
         self.dailydata = None
         self.intradata = None
+        self.security_df = None
 
         self.intra_scaler = None
         self.daily_scaler = None
@@ -93,6 +94,8 @@ class LstmDataHandler:
             temp_df['ATR'] = mt.create_atr(temp_df, 8)
             temp_df = gt.convert_date_time(temp_df)
             temp_df = temp_df.sort_values(by='DateTime')
+            if sec == self.data_params['security']:
+                self.security_df = temp_df
 
             for col in temp_df.columns:
                 if col in ['Vol.1', 'OI', 'Time', 'AvgExp12', 'AvgExp24', 'Bearish_Double_Candle',
@@ -185,7 +188,7 @@ class LstmDataHandler:
 
     def scale_y_pnl_data(self):
         print('\nScaling Y-pnl Data')
-        self.y_pnl_scaler = RobustScaler(quantile_range=(20, 80))
+        self.y_pnl_scaler = RobustScaler(quantile_range=(5, 95))
         # self.y_pnl_scaler = StandardScaler()
         self.y_train_pnl_df = self.trade_data.y_train_df.iloc[:, :2]
         pnl_scaled = (
@@ -292,3 +295,9 @@ class LstmDataHandler:
         losses = sum(self.y_train_wl_df['Loss'])
         self.wl_ratio = 1 - wins/(wins + losses)
         print(f'\nWin-Loss Ratio to Beat: {self.wl_ratio:.4f}')
+
+    def add_close_data_to_test_dfs(self):
+        self.y_test_pnl_df = self.y_test_pnl_df.merge(self.security_df[['DateTime', 'Close']], on=['DateTime'])
+        self.y_test_wl_df = self.y_test_wl_df.merge(self.security_df[['DateTime', 'Close']], on=['DateTime'])
+
+

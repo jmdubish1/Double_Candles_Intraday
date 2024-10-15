@@ -22,7 +22,7 @@ setup_dict = {
     'security': 'NQ',
     'other_securities': ['RTY', 'ES', 'YM', 'GC', 'CL'],
     'sides': ['Bull', 'Bear'],
-    'time_frame': '15min',
+    'time_frame': '5min',
     'time_length': '20years',
     'data_loc': r'C:\Users\jmdub\Documents\Trading\Futures\Strategy Info\data',
     'strat_dat_loc': r'C:\Users\jmdub\Documents\Trading\Futures\Strategy Info\Double Candles',
@@ -34,8 +34,8 @@ setup_dict = {
 }
 
 lstm_model_dict = {
-    'epochs': 20,
-    'batch_size': 32,
+    'epochs': 100,
+    'batch_size': 16,
     'test_size': 10
 }
 
@@ -51,7 +51,8 @@ def main():
     lstm_data.get_trade_data()
     pnl_summary = lstm_data.trade_data.trade_df.groupby(['side', 'paramset_id'], as_index=False)['PnL'].sum()
     for side in ['Bull', 'Bear']:
-        pnl_summary = pnl_summary[pnl_summary['PnL'] > 0]
+        pnl_summary = pnl_summary[pnl_summary['PnL'] > -2500]
+        lstm_data.trade_data.set_pnl(side)
         for param in np.unique(pnl_summary['paramset_id']):
             lstm_data.trade_data.create_working_df(paramset_id=param, side=side)
             work_df = lstm_data.trade_data.working_df
