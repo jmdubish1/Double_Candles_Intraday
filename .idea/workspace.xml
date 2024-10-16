@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="0f8d2bdc-b7dc-4eca-bfb4-9361faf947dc" name="Changes" comment="Better developed. No notes">
+    <list default="true" id="0f8d2bdc-b7dc-4eca-bfb4-9361faf947dc" name="Changes" comment="Fixed a major issue where my PnL y data was implicitly non-stationary.">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/neural_network/nn_run/lstm_main.py" beforeDir="false" afterPath="$PROJECT_DIR$/neural_network/nn_run/lstm_main.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/neural_network/nn_tools/lstm_data_tools.py" beforeDir="false" afterPath="$PROJECT_DIR$/neural_network/nn_tools/lstm_data_tools.py" afterDir="false" />
@@ -223,12 +223,21 @@
       <option name="project" value="LOCAL" />
       <updated>1728964222312</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="Fixed a major issue where my PnL y data was implicitly non-stationary.">
+      <option name="closed" value="true" />
+      <created>1729030138702</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1729030138702</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="New model that attempts to use the daily running data to determine if the trade will be a success" />
     <MESSAGE value="Better developed. No notes" />
-    <option name="LAST_COMMIT_MESSAGE" value="Better developed. No notes" />
+    <MESSAGE value="Fixed a major issue where my PnL y data was implicitly non-stationary." />
+    <option name="LAST_COMMIT_MESSAGE" value="Fixed a major issue where my PnL y data was implicitly non-stationary." />
   </component>
 </project>

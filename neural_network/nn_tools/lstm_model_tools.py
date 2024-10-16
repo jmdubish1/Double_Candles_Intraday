@@ -9,7 +9,7 @@ from tensorflow.keras.layers import LSTM, Dense, Dropout, Input, Concatenate, Ba
 from tensorflow.keras.optimizers import Adam
 from keras.regularizers import l2, l1
 from tensorflow.keras.initializers import GlorotUniform
-from tensorflow.keras.callbacks import ReduceLROnPlateau, Callback
+from tensorflow.keras.callbacks import ReduceLROnPlateau, Callback, EarlyStopping
 from sklearn.utils.class_weight import compute_class_weight
 import matplotlib.pyplot as plt
 import neural_network.nn_tools.math_tools as mt
@@ -160,11 +160,11 @@ class LstmOptModel:
         lr_scheduler = ReduceLROnPlateau(monitor='loss', factor=0.95, patience=2, min_lr=.00001, verbose=1)
         live_plot = LivePlotLosses()
         data_gen = CustomDataGenerator(lstm_data, self, self.batch_s)
-
+        stop_at_95_accuracy = StopAtAccuracy(accuracy_threshold=0.95)
         self.model.fit(data_gen,
                        epochs=self.epochs,
                        verbose=1,
-                       callbacks=[lr_scheduler, live_plot])
+                       callbacks=[lr_scheduler, live_plot, stop_at_95_accuracy])
 
         return live_plot
 
@@ -188,7 +188,8 @@ class LstmOptModel:
 
         wl_predictions = lstm_data.y_wl_onehot_scaler.inverse_transform(wl_predictions)
         pnl_predictions = lstm_data.y_pnl_scaler.inverse_transform(pnl_predictions)
-        lstm_data.y_test_pnl_df['PnL'] = lstm_data.y_pnl_scaler.inverse_transform(lstm_data.y_test_pnl_df['PnL'])
+        lstm_data.y_test_pnl_df['PnL'] = (
+            lstm_data.y_pnl_scaler.inverse_transform(lstm_data.y_test_pnl_df['PnL'].values.reshape(-1, 1)))
 
         lstm_data.y_test_wl_df['Pred'] = wl_predictions[:, 0]
 
@@ -196,17 +197,17 @@ class LstmOptModel:
             lstm_data.y_test_pnl_df[['DateTime', 'PnL']].merge(lstm_data.y_test_wl_df, on='DateTime'))
         lstm_data.y_test_pnl_df['Pred'] = pnl_predictions[:, 0]
 
+        lstm_data.add_close_to_test_dfs()
+
         lstm_data.y_test_pnl_df = mt.summary_predicted(lstm_data.y_test_pnl_df)
         lstm_data.y_test_wl_df = mt.summary_predicted(lstm_data.y_test_wl_df, wl=True)
-
-        lstm_data.y_test_pnl_df = lstm_data.adjust_back_data(lstm_data.y_test_pnl_df)
 
         sec = lstm_data.data_params['security']
         timeframe = lstm_data.data_params['time_frame']
 
         save_loc = \
             r'C:\Users\jmdub\Documents\Trading\Futures\Strategy Info\Double_Candles\ATR'
-        save_loc = f'{save_loc}\\{sec}\\{timeframe}min\\{timeframe}min_test_20years\\Plots'
+        save_loc = f'{save_loc}\\{sec}\\{timeframe}\\{timeframe}_test_20years\\Plots'
         os.makedirs(save_loc, exist_ok=True)
         lstm_data.y_test_pnl_df.to_excel(f'{save_loc}\\predictions_{side}_{param}_pnl.xlsx')
         lstm_data.y_test_wl_df.to_excel(f'{save_loc}\\predictions_{side}_{param}_wl.xlsx')
@@ -324,26 +325,43 @@ class LivePlotLosses(Callback):
             ax.clear()
 
         # Plot accumulated data for all completed epochs
-        self.axs[0, 0].plot(self.epochs, self.losses, label="Total Loss", marker='o')
+        self.axs[0, 0].plot(self.epochs, self.losses,
+                            label="Total Loss", marker='o')
         self.axs[0, 0].set_title("Total Loss")
         self.axs[0, 0].legend()
 
-        self.axs[0, 1].plot(self.epochs, self.wl_classification_losses, label="WL Classification Loss", marker='o')
+        self.axs[0, 1].plot(self.epochs, self.wl_classification_losses,
+                            label="WL Classification Loss", marker='o')
         self.axs[0, 1].set_title("WL Classification Loss")
         self.axs[0, 1].legend()
 
-        self.axs[1, 0].plot(self.epochs, self.wl_classification_accuracies, label="WL Classification Accuracy", marker='o')
+        self.axs[1, 0].plot(self.epochs, self.wl_classification_accuracies,
+                            label="WL Classification Accuracy", marker='o')
         self.axs[1, 0].set_title("WL Classification Accuracy")
         self.axs[1, 0].legend()
 
-        self.axs[1, 1].plot(self.epochs, self.pnl_output_mses, label="PnL Output MSE", marker='o')
+        self.axs[1, 1].plot(self.epochs, self.pnl_output_mses,
+                            label="PnL Output MSE", marker='o')
         self.axs[1, 1].set_title("PnL Output MSE")
         self.axs[1, 1].legend()
 
         # Draw the updated plots and pause for a short moment to update the plot
         self.fig.canvas.draw()
-        plt.pause(0.001)  # Pause briefly to ensure the plot refreshes
+        plt.pause(0.2)  # Pause briefly to ensure the plot refreshes
 
     def on_train_end(self, logs=None):
         plt.ioff()  # Turn off interactive mode at the end
         plt.close()
+
+
+class StopAtAccuracy(Callback):
+    def __init__(self, accuracy_threshold=0.95):
+        super(StopAtAccuracy, self).__init__()
+        self.accuracy_threshold = accuracy_threshold
+
+    def on_epoch_end(self, epoch, logs=None):
+        # 'logs' is a dictionary with keys for the tracked metrics.
+        wl_accuracy = logs.get('wl_classification_accuracy')
+        if wl_accuracy is not None and wl_accuracy >= self.accuracy_threshold:
+            print(f"\nReached {self.accuracy_threshold*100}% accuracy, stopping training!")
+            self.model.stop_training = True

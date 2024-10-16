@@ -38,9 +38,10 @@ class LstmDataHandler:
         self.intra_len = 0
         self.wl_ratio = 0
 
-    def get_trade_data(self):
+    def get_trade_data(self, side):
         self.trade_data.get_trade_data()
         self.set_daily_time_len()
+        self.trade_data.set_pnl(side)
 
     def set_daily_time_len(self):
         open_time = datetime.strptime(f'{self.data_params["start_hour"]}:00', '%H:%M')
@@ -296,8 +297,7 @@ class LstmDataHandler:
         self.wl_ratio = 1 - wins/(wins + losses)
         print(f'\nWin-Loss Ratio to Beat: {self.wl_ratio:.4f}')
 
-    def add_close_data_to_test_dfs(self):
+    def add_close_to_test_dfs(self):
         self.y_test_pnl_df = self.y_test_pnl_df.merge(self.security_df[['DateTime', 'Close']], on=['DateTime'])
         self.y_test_wl_df = self.y_test_wl_df.merge(self.security_df[['DateTime', 'Close']], on=['DateTime'])
-
 

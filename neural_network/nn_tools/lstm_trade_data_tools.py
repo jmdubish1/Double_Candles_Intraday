@@ -41,6 +41,8 @@ class TradeData:
                                         self.trade_df['entryPrice'] - self.trade_df['exitPrice'],
                                         self.trade_df['exitPrice'] - self.trade_df['entryPrice'])
         self.trade_df['Win_Loss'] = np.where(self.trade_df['PnL'] > 0, 'Win', 'Loss')
+
+    def adjust_pnl(self):
         self.trade_df['PnL'] = self.trade_df['PnL']/self.trade_df['entryPrice']*100
 
     def create_working_df(self, paramset_id=2, side='Bull'):
