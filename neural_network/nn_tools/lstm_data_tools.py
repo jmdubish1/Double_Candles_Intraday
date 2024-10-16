@@ -1,4 +1,5 @@
 import numpy as np
+import os
 import random
 import copy
 import pandas as pd
@@ -6,7 +7,10 @@ import neural_network.nn_tools.math_tools as mt
 import gen_data_tools.general_tools as gt
 import neural_network.nn_tools.lstm_trade_data_tools as tdt
 from sklearn.preprocessing import RobustScaler, StandardScaler, OneHotEncoder
+from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
 from datetime import datetime, timedelta
+import openpyxl
+from openpyxl import load_workbook
 
 # np.random.seed(42)
 
@@ -189,8 +193,8 @@ class LstmDataHandler:
 
     def scale_y_pnl_data(self):
         print('\nScaling Y-pnl Data')
-        self.y_pnl_scaler = RobustScaler(quantile_range=(5, 95))
-        # self.y_pnl_scaler = StandardScaler()
+        # self.y_pnl_scaler = RobustScaler(quantile_range=(5, 95))
+        self.y_pnl_scaler = StandardScaler()
         self.y_train_pnl_df = self.trade_data.y_train_df.iloc[:, :2]
         pnl_scaled = (
             self.y_pnl_scaler.fit_transform(self.y_train_pnl_df.iloc[:, 1].values.astype('float32').reshape(-1, 1)))
@@ -300,4 +304,178 @@ class LstmDataHandler:
     def add_close_to_test_dfs(self):
         self.y_test_pnl_df = self.y_test_pnl_df.merge(self.security_df[['DateTime', 'Close']], on=['DateTime'])
         self.y_test_wl_df = self.y_test_wl_df.merge(self.security_df[['DateTime', 'Close']], on=['DateTime'])
+
+    def prep_predicted_data(self, wl_predictions, pnl_predictions):
+        wl_predictions = self.y_wl_onehot_scaler.inverse_transform(wl_predictions)
+        pnl_predictions = self.y_pnl_scaler.inverse_transform(pnl_predictions)
+        self.y_test_pnl_df['PnL'] = (
+            self.y_pnl_scaler.inverse_transform(self.y_test_pnl_df['PnL'].values.reshape(-1, 1)))
+
+        self.y_test_wl_df['Pred'] = wl_predictions[:, 0]
+
+        self.y_test_wl_df = (
+            self.y_test_pnl_df[['DateTime', 'PnL']].merge(self.y_test_wl_df, on='DateTime'))
+        self.y_test_pnl_df['Pred'] = pnl_predictions[:, 0]
+
+        self.add_close_to_test_dfs()
+
+        self.y_test_pnl_df = mt.summary_predicted(self.y_test_pnl_df, 3)
+        self.y_test_wl_df = mt.summary_predicted(self.y_test_wl_df, 3, wl=True)
+
+        self.prep_actual_wl_cols()
+
+    def prep_actual_wl_cols(self, wl=True):
+        if wl:
+            actual_wl = self.y_test_wl_df.apply(lambda row: 'Win' if row['PnL'] > 0 else 'Loss', axis=1)
+            self.y_test_wl_df['Loss'] = actual_wl
+            self.y_test_wl_df.drop(columns='Win', inplace=True)
+            self.y_test_wl_df.rename(columns={'Loss': 'Actual_wl', 'Pred': 'Pred_wl'}, inplace=True)
+
+        else:
+            actual_wl = (
+                self.y_test_pnl_df.apply(lambda row: 'Win' if row['PnL'] > 0  else 'Loss', axis=1))
+            self.y_test_pnl_df['Actual_wl'] = actual_wl
+            cols = list(self.y_test_pnl_df)
+            cols.insert(2, cols.pop(cols.index('Actual_wl')))
+            self.y_test_pnl_df = self.y_test_pnl_df[cols]
+
+            pred_wl = self.y_test_pnl_df.apply(lambda row: 'Win' if row['Pred'] > 0 else 'Loss', axis=1)
+            self.y_test_pnl_df['Pred_wl'] = pred_wl
+
+            cols = list(self.y_test_pnl_df)
+            cols.insert(4, cols.pop(cols.index('Pred_wl')))
+            self.y_test_pnl_df = self.y_test_pnl_df[cols]
+
+    def get_confusion_matrix_metrics(self, wl=True):
+        self.win_loss_information()
+        if wl:
+            df = self.y_test_wl_df
+            print('WL Dataset')
+        else:
+            df = self.y_test_pnl_df
+            print('PnL Dataset')
+
+        conf_matrix = confusion_matrix(df['Actual_wl'], df['Pred_wl'], labels=['Win', 'Loss'])
+        conf_matrix = pd.DataFrame(conf_matrix, columns=['Pred_Pos', 'Pred_Neg'], index=['Actual_Pos', 'Actual_Neg'])
+        print('\nConfusion Matrix')
+        print(conf_matrix)
+
+        class_report = classification_report(df['Actual_wl'], df['Pred_wl'], target_names=['Win', 'Loss'])
+        print("\nClassification Report")
+        print(class_report)
+
+        accuracy = accuracy_score(df['Actual_wl'], df['Pred_wl'])
+        print("\nAccuracy Score: {:.2f}".format(accuracy))
+
+        return conf_matrix, class_report, accuracy
+
+
+class SaveHandler:
+    def __init__(self, lstm_data):
+        self.lstm_data = lstm_data
+        self.save_loc = self.get_save_loc()
+        self.save_file = None
+        self.trade_metrics = None
+
+    def get_save_loc(self):
+        sec = self.lstm_data.data_params['security']
+        timeframe = self.lstm_data.data_params['time_frame']
+
+        save_loc = \
+            r'C:\Users\jmdub\Documents\Trading\Futures\Strategy Info\Double_Candles\ATR'
+        save_loc = f'{save_loc}\\{sec}\\{timeframe}\\{timeframe}_test_20years\\Results'
+        os.makedirs(save_loc, exist_ok=True)
+
+        return save_loc
+
+    def get_trade_metrics(self, wl=True):
+        self.lstm_data.win_loss_information()
+        if wl:
+            df = self.lstm_data.y_test_wl_df
+        else:
+            df = self.lstm_data.y_test_pnl_df
+        od_correct = (df['Pred_PnL'] > 0).sum()
+        od_tot = (df['Pred_PnL'] != 0).sum()
+        od_percent = od_correct/od_tot
+        od_rolling = df['Pred_PnL_Total'].values
+        od_max = np.max(od_rolling)
+        od_avg = np.mean(df['Pred_PnL'].values)
+        od_avg_win = np.mean(df[df['Pred_PnL'] > 0])
+        od_avg_loss = np.mean(df[df['Pred_PnL'] < 0])
+        od_max_draw = np.min(df['Pred_MaxDraw'].values)
+
+        td_correct = (df['Pred']/df['PnL'] > 0).sum()
+        td_tot = len(df.index)
+        td_perecent = td_correct/td_tot
+        df['Two_Dir_Pred_PnL'] = df.apply(
+            lambda row: abs(row['PnL']) if (row['Pred'] > 0 and row['PnL'] > 0) or (row['Pred'] < 0 and row['PnL'] < 0)
+            else -abs(row['PnL']), axis=1)
+        td_rolling = pd.Series(df['Two_Dir_Pred_PnL']).cumsum().values
+        td_max = np.max(td_rolling)
+        td_avg = np.mean(df['Two_Dir_Pred_PnL'].values)
+        td_avg_win = np.mean(df[df['Two_Dir_Pred_PnL'] > 0])
+        td_avg_loss = np.mean(df[df['Two_Dir_Pred_PnL'] < 0])
+        df['Two_Dir_Pred_MaxDraw'] = mt.calculate_max_drawdown(df['Two_Dir_Pred_PnL'])
+        td_max_draw = np.min(df['Two_Dir_Pred_MaxDraw'].values)
+
+        od_dat = [od_correct, od_tot, od_percent, od_max, od_max_draw, od_avg, od_avg_win, od_avg_loss]
+        td_dat = [td_correct, td_tot, td_perecent, td_max, td_max_draw, td_avg, td_avg_win, td_avg_loss]
+        cols = ['Correct_Trades', 'Total_Trades', '%_Correct', 'Max_PnL', 'Max_Drawdown',
+                'Avg_Trade', 'Avg_Win', 'Avg_Loss']
+
+        self.trade_metrics = pd.DataFrame([od_dat, td_dat], columns=cols)
+
+    def save_metrics(self, side, param, dfs, sheet_name, stack_row=False):
+        self.save_file = f'{self.save_loc}\\predictions_{side}_{param}.xlsx'
+
+        if os.path.exists(self.save_loc):
+            # Load the existing workbook
+            book = load_workbook(self.save_file)
+            with pd.ExcelWriter(self.save_file, engine='openpyxl', mode='a') as writer:
+                writer.book = book
+                start_positions = get_excel_sheet_df_positions(dfs, stack_row)
+                self.write_metrics_to_excel(writer, side, dfs, sheet_name, start_positions)
+
+        else:
+            # Create a new Excel file
+            with pd.ExcelWriter(self.save_file, engine='openpyxl') as writer:
+                start_positions = get_excel_sheet_df_positions(dfs, stack_row)
+                self.write_metrics_to_excel(writer, side, dfs, sheet_name, start_positions)
+
+    def write_metrics_to_excel(self, writer, side, dfs, sheet_name, start_positions):
+        for df, (startrow, startcol) in zip(dfs, start_positions):
+            df.to_excel(writer, sheet_name=f'{side}_{sheet_name}',
+                        startrow=startrow, startcol=startcol, index=False)
+
+def get_excel_sheet_df_positions(dfs, stack_row):
+    start_positions = [(0, 0)]
+
+    if len(dfs) > 1:
+        if stack_row:
+            start_row = len(dfs[0])
+            for df in dfs[1:]:
+                start_row += 1
+                start_positions.append((start_row, 0))
+                start_row += len(df)
+        else:
+            start_row = 0
+            start_col = len(dfs[0].columns) + 1
+            for df in dfs[1:]:
+                start_positions.append((start_row, start_col))
+                start_row += len(df) + 1
+
+    return start_positions
+
+
+
+
+
+
+
+
+
+
+
+
+
 

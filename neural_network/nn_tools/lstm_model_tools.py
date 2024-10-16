@@ -3,6 +3,7 @@ import time
 import numpy as np
 import pandas as pd
 import os
+import io
 import tensorflow as tf
 from tensorflow.keras.models import load_model, Model
 from tensorflow.keras.layers import LSTM, Dense, Dropout, Input, Concatenate, BatchNormalization
@@ -13,6 +14,10 @@ from tensorflow.keras.callbacks import ReduceLROnPlateau, Callback, EarlyStoppin
 from sklearn.utils.class_weight import compute_class_weight
 import matplotlib.pyplot as plt
 import neural_network.nn_tools.math_tools as mt
+from openpyxl import load_workbook
+import neural_network.nn_tools.lstm_data_tools as ldt
+from openpyxl.drawing.image import Image
+import openpyxl
 
 
 class LstmOptModel:
@@ -32,6 +37,9 @@ class LstmOptModel:
         self.scheduler = None
         self.optimizer = None
         self.input_shapes = None
+
+        self.model_summary = None
+        self.model_plot = None
 
     def set_scheduler(self):
         self.scheduler = CustLRSchedule(initial_learning_rate=.03, decay_rate=0.00001)
@@ -66,7 +74,7 @@ class LstmOptModel:
                            metrics={'wl_classification': 'accuracy',
                                     'pnl_output': 'mse'})
         print('New Model Created')
-        self.model.summary()
+        self.get_model_summary_df()
 
     def get_input_shapes(self, daily_data, intraday_data):
         """Plus 12 for number of months in year"""
@@ -109,7 +117,7 @@ class LstmOptModel:
 
         # Intraday LSTM branch
         self.input_layer_intraday = Input(self.input_shapes[1])
-        lstm_i1 = LSTM(units=256,
+        lstm_i1 = LSTM(units=128,
                        activation='tanh',
                        recurrent_activation='sigmoid',
                        return_sequences=True,
@@ -122,7 +130,7 @@ class LstmOptModel:
         drop_i1 = Dropout(0.05, name='drop_i1')(batch_n2)
 
         # Final LSTM layer for intraday data - set return_sequences=False
-        lstm_i2 = LSTM(units=192,
+        lstm_i2 = LSTM(units=92,
                        activation='tanh',
                        recurrent_activation='sigmoid',
                        return_sequences=False,
@@ -130,7 +138,7 @@ class LstmOptModel:
                        kernel_regularizer=l2(0.005),
                        name='lstm_i2')(drop_i1)
 
-        dense_i1 = Dense(units=96,
+        dense_i1 = Dense(units=48,
                          activation='tanh',
                          kernel_initializer=GlorotUniform(),
                          kernel_regularizer=l2(0.005),
@@ -141,7 +149,7 @@ class LstmOptModel:
 
         drop_m1 = Dropout(0.05, name='drop_m1')(merged_lstm)
 
-        dense_m1 = Dense(units=48,
+        dense_m1 = Dense(units=32,
                          activation='tanh',
                          kernel_initializer=GlorotUniform(),
                          kernel_regularizer=l2(0.005),
@@ -158,15 +166,13 @@ class LstmOptModel:
 
     def train_model(self, lstm_data):
         lr_scheduler = ReduceLROnPlateau(monitor='loss', factor=0.95, patience=2, min_lr=.00001, verbose=1)
-        live_plot = LivePlotLosses()
+        self.model_plot = LivePlotLosses()
         data_gen = CustomDataGenerator(lstm_data, self, self.batch_s)
-        stop_at_95_accuracy = StopAtAccuracy(accuracy_threshold=0.95)
+        # stop_at_95_accuracy = StopAtAccuracy(accuracy_threshold=0.98)
         self.model.fit(data_gen,
                        epochs=self.epochs,
                        verbose=1,
-                       callbacks=[lr_scheduler, live_plot, stop_at_95_accuracy])
-
-        return live_plot
+                       callbacks=[lr_scheduler, self.model_plot])
 
     def evaluate_model(self, lstm_data):
         test_generator = CustomDataGenerator(lstm_data, self, self.batch_s, train=False)
@@ -180,41 +186,87 @@ class LstmOptModel:
         print(f'WL Classification Acc: {wl_accuracy:.4f}')
         print(f'PnL Output MSE: {pnl_output_mse:.4f}')
 
-    def predict_data(self, lstm_data, param, side, model_plot):
+        return test_loss, test_wl_loss, test_pnl_loss, wl_accuracy, pnl_output_mse
+
+    def predict_data_evaluate(self, lstm_data, param, side):
+        save_handler = ldt.SaveHandler(lstm_data)
+        model_metrics = self.evaluate_model(lstm_data)
+        model_metrics = pd.DataFrame(model_metrics).T
+        model_metrics.columns = ['test_loss', 'test_wl_loss', 'test_pnl_loss', 'wl_accuracy', 'pnl_output_mse']
+
         test_generator = CustomDataGenerator(lstm_data, self, self.batch_s, train=False)
-        predictions = self.model.predict(test_generator, verbose=1)
 
-        wl_predictions, pnl_predictions = predictions
+        wl_predictions, pnl_predictions = self.model.predict(test_generator, verbose=1)
+        lstm_data.prep_predicted_data(wl_predictions, pnl_predictions)
 
-        wl_predictions = lstm_data.y_wl_onehot_scaler.inverse_transform(wl_predictions)
-        pnl_predictions = lstm_data.y_pnl_scaler.inverse_transform(pnl_predictions)
-        lstm_data.y_test_pnl_df['PnL'] = (
-            lstm_data.y_pnl_scaler.inverse_transform(lstm_data.y_test_pnl_df['PnL'].values.reshape(-1, 1)))
+        wl_con_mat = lstm_data.get_confusion_matrix_metrics()
+        wl_trade_metrics = lstm_data.get_trade_metrics()
+        wl_dfs = [lstm_data.y_test_wl_df, wl_trade_metrics, wl_con_mat]
+        save_handler.save_metrics(side, param, wl_dfs, 'WL')
 
-        lstm_data.y_test_wl_df['Pred'] = wl_predictions[:, 0]
+        pnl_con_mat = lstm_data.get_confusion_matrix_metrics(wl=False)
+        pnl_trade_metrics = lstm_data.get_trade_metrics(wl=False)
+        pnl_dfs = [lstm_data.y_train_wl_df, pnl_trade_metrics, pnl_con_mat]
+        save_handler.save_metrics(side, param, pnl_dfs, 'PnL')
 
-        lstm_data.y_test_wl_df = (
-            lstm_data.y_test_pnl_df[['DateTime', 'PnL']].merge(lstm_data.y_test_wl_df, on='DateTime'))
-        lstm_data.y_test_pnl_df['Pred'] = pnl_predictions[:, 0]
+        model_dfs = [self.model_summary, model_metrics]
+        save_handler.save_metrics(side, param, model_dfs, 'Model')
 
-        lstm_data.add_close_to_test_dfs()
+        self.save_plot_to_excel(save_handler, side)
 
-        lstm_data.y_test_pnl_df = mt.summary_predicted(lstm_data.y_test_pnl_df)
-        lstm_data.y_test_wl_df = mt.summary_predicted(lstm_data.y_test_wl_df, wl=True)
+        print(f'Data saved to: {save_handler.save_file}')
+        breakpoint()
 
-        sec = lstm_data.data_params['security']
-        timeframe = lstm_data.data_params['time_frame']
+    def save_plot_to_excel(self, save_handler, side):
+        file_exists = os.path.exists(save_handler.save_file)
+        if not file_exists:
+            wb = openpyxl.Workbook()
+        else:
+            wb = openpyxl.load_workbook(save_handler.save_file)
 
-        save_loc = \
-            r'C:\Users\jmdub\Documents\Trading\Futures\Strategy Info\Double_Candles\ATR'
-        save_loc = f'{save_loc}\\{sec}\\{timeframe}\\{timeframe}_test_20years\\Plots'
-        os.makedirs(save_loc, exist_ok=True)
-        lstm_data.y_test_pnl_df.to_excel(f'{save_loc}\\predictions_{side}_{param}_pnl.xlsx')
-        lstm_data.y_test_wl_df.to_excel(f'{save_loc}\\predictions_{side}_{param}_wl.xlsx')
+        # Select a sheet or create a new one
+        sheet_name = f'{side}_Model'
+        if sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+        else:
+            ws = wb.create_sheet(sheet_name)
 
-        save_path = os.path.join(save_loc, f'nn_performance_plot_{param}_{side}.png')
-        model_plot.fig.savefig(save_path)
-        print(f"Final plot saved to: {save_path}")
+        img_loc = f'{save_handler.save_loc}\\temp_img.png'
+        self.model_plot.savefig(img_loc)
+        img = Image(img_loc)
+
+        plot_loc_excel = 'F2'
+        if file_exists:
+            plot_loc_excel = 'F12'
+        ws.add_image(img, plot_loc_excel)
+
+        wb.save(save_handler.save_file)
+
+        if os.path.exists(img_loc):
+            os.remove(img_loc)
+
+    def get_model_summary_df(self):
+        self.model.summary()
+
+        summary_buf = io.StringIO()
+        self.model.summary(print_fn=lambda x: summary_buf.write(x + "\n"))
+
+        summary_string = summary_buf.getvalue()
+        summary_lines = summary_string.split("\n")
+
+        summary_data = []
+        for line in summary_lines:
+            split_line = list(filter(None, line.split(" ")))
+            if len(split_line) > 1:
+                summary_data.append(split_line)
+
+        # df_summary = pd.DataFrame(summary_data, columns=['Layer', 'Output Shape', 'Param #', 'Connected To'])
+        df_summary = pd.DataFrame(summary_data)
+        df_cols = df_summary.iloc[1]
+        df_summary = df_summary.iloc[2:].reset_index(drop=True)
+        df_summary.columns = df_cols
+
+        self.model_summary = df_summary
 
 
 """--------------------------------------------Custom Callbacks Work-------------------------------------------------"""
@@ -245,7 +297,7 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
     def __init__(self, lstm_data, lstm_model, batch_size, train=True):
         self.lstm_data = lstm_data
         self.lstm_model = lstm_model
-        self.train_test = train
+        self.train_tf = train
         self.sample_ind_list = []
         self.n_samples = 0
         self.batch_size = batch_size
@@ -265,14 +317,14 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
         batch_gen = self.lstm_data.create_batch_input(train_inds,
                                                       self.lstm_model.daily_len,
                                                       self.lstm_model.intra_len,
-                                                      self.train_test)
+                                                      self.train_tf)
 
         x_day_arr, x_intra_arr, y_pnl_arr, y_wl_arr = next(batch_gen)
 
         return [x_day_arr, x_intra_arr], {'wl_classification': y_wl_arr, 'pnl_output': y_pnl_arr}
 
     def set_attributes(self):
-        if self.train_test:
+        if self.train_tf:
             self.sample_ind_list = list(self.lstm_data.y_train_pnl_df.index)
             self.n_samples = len(self.lstm_data.trade_data.y_train_df)
 
@@ -281,14 +333,11 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
             self.n_samples = len(self.lstm_data.trade_data.y_test_df)
 
     def on_epoch_end(self):
-        # Optionally shuffle the data at the end of each epoch
-        if self.train_test:
+        if self.train_tf:
             np.random.shuffle(self.sample_ind_list)
-            # print(f'W-L Ratio: {self.lstm_data.wl_ratio} : Diff')
 
 
 def weighted_categorical_crossentropy(class_weights):
-    # Create a loss function that can accept class weights
     def loss(y_true, y_pred):
         y_true = tf.cast(y_true, tf.float32)
         weights = tf.reduce_sum(class_weights * y_true, axis=-1)
@@ -360,7 +409,6 @@ class StopAtAccuracy(Callback):
         self.accuracy_threshold = accuracy_threshold
 
     def on_epoch_end(self, epoch, logs=None):
-        # 'logs' is a dictionary with keys for the tracked metrics.
         wl_accuracy = logs.get('wl_classification_accuracy')
         if wl_accuracy is not None and wl_accuracy >= self.accuracy_threshold:
             print(f"\nReached {self.accuracy_threshold*100}% accuracy, stopping training!")

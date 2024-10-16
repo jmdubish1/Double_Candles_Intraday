@@ -34,7 +34,7 @@ setup_dict = {
 }
 
 lstm_model_dict = {
-    'epochs': 100,
+    'epochs': 1,
     'batch_size': 16,
     'test_size': 10
 }
@@ -53,7 +53,7 @@ def main():
         pnl_summary = lstm_data.trade_data.trade_df.groupby(['side', 'paramset_id'], as_index=False)['PnL'].sum()
         pnl_summary = pnl_summary[pnl_summary['PnL'] > 0]
         lstm_data.trade_data.adjust_pnl()
-        for param in np.unique(pnl_summary['paramset_id']):
+        for param in np.unique(pnl_summary['paramset_id'])[::-1]:
             lstm_data.trade_data.create_working_df(paramset_id=param, side=side)
             work_df = lstm_data.trade_data.working_df
             if len(work_df) == 0:
@@ -70,10 +70,8 @@ def main():
             lstm_model = lmt.LstmOptModel(lstm_model_dict)
             lstm_model.set_intra_len(lstm_data.intra_len)
             lstm_model.build_compile_model(lstm_data)
-            lstm_data.win_loss_information()
-            model_plot = lstm_model.train_model(lstm_data)
-            lstm_model.evaluate_model(lstm_data)
-            lstm_model.predict_data(lstm_data, param, side, model_plot)
+            lstm_model.train_model(lstm_data)
+            lstm_model.predict_data_evaluate(lstm_data, param, side)
 
 
 if __name__ == '__main__':

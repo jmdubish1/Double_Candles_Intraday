@@ -97,7 +97,7 @@ def smooth_vol_oi(df, securities):
 
 def calculate_max_drawdown(pnl_series):
     draw_list = [0]
-    arr = pnl_series.to_numpy()
+    arr = pnl_series.values
     for i in range(1, len(arr)):
         prev_max = np.max(arr[:i])
         draw_list.append(min(0, arr[i] - prev_max))
@@ -105,7 +105,31 @@ def calculate_max_drawdown(pnl_series):
     return draw_list
 
 
-def summary_predicted(df, wl=False):
+def calculate_algo_lstm_ratio(algo_series, lstm_series, max_lever):
+    draw_ratio_list = [1]
+    algo_arr = algo_series.values
+    lstm_arr = lstm_series.values
+    for i in range(1, (len(algo_arr))):
+        start_ind = max(0, i-50)
+        if np.min(lstm_arr[start_ind:i]) == 0:
+            draw_ratio_list.append(1)
+        else:
+            algo_1 = algo_arr[start_ind:i]
+            algo_1 = algo_1[algo_1 != 0]
+
+            lstm_1 = lstm_arr[start_ind:i]
+            lstm_1 = lstm_1[lstm_1 != 0]
+
+            if (len(lstm_1) == 0) or (len(algo_1) == 0):
+                draw_ratio_list.append(draw_ratio_list[-1])
+            else:
+                max_draw = np.median(algo_1)/np.median(lstm_1)
+                draw_ratio_list.append(max(1, min(max_draw, max_lever)))
+
+    return draw_ratio_list
+
+
+def summary_predicted(df, max_lever, wl=False):
     df['PnL'] = df['PnL']*df['Close']/100
     df['Algo_PnL_Total'] = df['PnL'].cumsum()
     df['Algo_MaxDraw'] = calculate_max_drawdown(df['Algo_PnL_Total'])
@@ -115,7 +139,10 @@ def summary_predicted(df, wl=False):
         df['Pred_PnL'] = np.where(df['Pred'] < 0, 0, df['PnL'])
     df['Pred_PnL_Total'] = df['Pred_PnL'].cumsum()
     df['Pred_MaxDraw'] = calculate_max_drawdown(df['Pred_PnL_Total'])
-    df['Pred_PnL_Adj'] = df['Pred_PnL']*np.abs(np.min(df['Algo_MaxDraw'].values)/np.min(df['Pred_MaxDraw'].values))
+
+    # ratio_list = calculate_algo_lstm_ratio(df['Algo_MaxDraw'], df['Pred_MaxDraw'], max_lever)
+    # df['Pred_PnL_Adj'] = df['Pred_PnL'] * ratio_list
+    # df['Pred_PnL_Adj_Total'] = df['Pred_PnL_Adj'].cumsum()
     df.fillna(0, inplace=True)
 
     return df
