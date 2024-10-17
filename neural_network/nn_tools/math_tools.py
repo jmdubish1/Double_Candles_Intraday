@@ -58,11 +58,11 @@ def add_high_low_diff(df, other_sec, sec_name):
     securities = other_sec + [sec_name]
     for sec in securities:
         df[f'{sec}_HL_diff'] = (
-                df[f'{sec}_High'] - df[f'{sec}_Low'])/((df[f'{sec}_High'] + df[f'{sec}_Low'])/2)*1000
+                df[f'{sec}_High'] - df[f'{sec}_Low']) / ((df[f'{sec}_High'] + df[f'{sec}_Low'])/2)*1000
         df[f'{sec}_OC_diff'] = (
-                df[f'{sec}_Open'] - df[f'{sec}_Close'])/((df[f'{sec}_Open'] + df[f'{sec}_Close'])/2)*1000
+                df[f'{sec}_Open'] - df[f'{sec}_Close']) / ((df[f'{sec}_Open'] + df[f'{sec}_Close'])/2)*1000
 
-        df[f'{sec}_HL_Ratio'] = df[f'{sec}_HL_diff']/df[f'{sec}_HL_diff'].shift(1)
+        df[f'{sec}_HL_Ratio'] = df[f'{sec}_HL_diff'] / df[f'{sec}_HL_diff'].shift(1)
         df[f'{sec}_OC_Ratio'] = df[f'{sec}_OC_diff'] / df[f'{sec}_OC_diff'].shift(1)
 
     drop_cols = [f'{sec}_{col}' for sec in other_sec for col in ['High', 'Low']]
@@ -140,9 +140,7 @@ def summary_predicted(df, max_lever, wl=False):
     df['Pred_PnL_Total'] = df['Pred_PnL'].cumsum()
     df['Pred_MaxDraw'] = calculate_max_drawdown(df['Pred_PnL_Total'])
 
-    # ratio_list = calculate_algo_lstm_ratio(df['Algo_MaxDraw'], df['Pred_MaxDraw'], max_lever)
-    # df['Pred_PnL_Adj'] = df['Pred_PnL'] * ratio_list
-    # df['Pred_PnL_Adj_Total'] = df['Pred_PnL_Adj'].cumsum()
+
     df.fillna(0, inplace=True)
 
     return df

@@ -98,3 +98,24 @@ def pad_to_length(arr, target_length):
 
     return padded_array
 
+
+def arrange_xcols_for_scaling(df):
+
+    cols = list(df.columns)
+    # cols.insert(-1, cols.pop(cols.index('Day')))
+    # cols.insert(-1, cols.pop(cols.index('Month')))
+    cols.append(cols.pop(cols.index('Day')))
+    cols.append(cols.pop(cols.index('Month')))
+    df = df[cols]
+
+    return df
+
+
+def add_arr_to_df(df, arr):
+    num_new_cols = arr.shape[1]
+    new_col_names = [f'Col{len(df.columns) + i + 1}' for i in range(num_new_cols)]
+
+    # Add the array as new columns to the DataFrame with dynamic column names
+    df[new_col_names] = arr
+
+    return df

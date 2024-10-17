@@ -16,10 +16,10 @@ from openpyxl import load_workbook
 
 
 class LstmDataHandler:
-    def __init__(self, data_param_dict, trade_data_dict):
+    def __init__(self, data_param_dict):
         self.data_params = data_param_dict
         self.all_secs = [self.data_params['security']] + self.data_params['other_securities']
-        self.trade_data = tdt.TradeData(trade_data_dict, data_param_dict)
+        self.trade_data = tdt.TradeData(data_param_dict)
 
         self.dailydata = None
         self.intradata = None
@@ -27,6 +27,8 @@ class LstmDataHandler:
 
         self.intra_scaler = None
         self.daily_scaler = None
+        self.month_onehot_scaler = None
+        self.day_onehot_scaler = None
 
         self.x_train_intra = None
         self.x_test_intra = None
@@ -83,10 +85,10 @@ class LstmDataHandler:
         self.dailydata = (
             self.dailydata)[self.dailydata['Date'] >= pd.to_datetime(self.data_params['start_train_date']).date()]
         self.dailydata['Date'] = pd.to_datetime(self.dailydata['Date'])
-        self.dailydata['Year'] = self.dailydata['Date'].dt.year
         self.dailydata['Month'] = self.dailydata['Date'].dt.month
-        self.dailydata['Day'] = self.dailydata['Date'].dt.day
+        self.dailydata['Day'] = self.dailydata['Date'].dt.dayofweek
         self.dailydata['Date'] = self.dailydata['Date'].dt.date
+
         self.finish_data_prep()
 
     def load_prep_intra_data(self):
@@ -124,9 +126,9 @@ class LstmDataHandler:
             self.intradata)[self.intradata['DateTime'].dt.date >=
                             pd.to_datetime(self.data_params['start_train_date']).date()]
         self.intradata['DateTime'] = pd.to_datetime(self.intradata['DateTime'])
-        self.intradata['Year'] = self.intradata['DateTime'].dt.year
         self.intradata['Month'] = self.intradata['DateTime'].dt.month
-        self.intradata['Day'] = self.intradata['DateTime'].dt.day
+        self.intradata['Day'] = self.intradata['DateTime'].dt.dayofweek
+
         self.finish_data_prep(daily=False)
 
     def finish_data_prep(self, daily=True):
@@ -180,6 +182,8 @@ class LstmDataHandler:
     def scale_x_data(self):
         print('\nScaling X Data')
         # self.intra_scaler = RobustScaler(quantile_range=(3, 97))
+        self.x_train_intra = gt.arrange_xcols_for_scaling(self.x_train_intra)
+        self.x_test_intra = gt.arrange_xcols_for_scaling(self.x_test_intra)
         self.intra_scaler = StandardScaler()
         self.x_train_intra.iloc[:, 1:] = (
             self.intra_scaler.fit_transform(self.x_train_intra.iloc[:, 1:].values.astype('float32')))
@@ -187,9 +191,35 @@ class LstmDataHandler:
             self.intra_scaler.transform(self.x_test_intra.iloc[:, 1:].values.astype('float32')))
 
         # self.daily_scaler = RobustScaler()
+        self.dailydata = gt.arrange_xcols_for_scaling(self.dailydata)
         self.daily_scaler = StandardScaler()
         self.dailydata.iloc[:, 1:] = (
             self.intra_scaler.fit_transform(self.dailydata.iloc[:, 1:].values.astype('float32')))
+
+        # self.onehot_month_day()
+
+    def onehot_month_day(self):
+        self.day_onehot_scaler = OneHotEncoder(sparse_output=False)
+        oh_day_train = self.day_onehot_scaler.fit_transform(self.x_train_intra.iloc[:, -2].values.reshape(-1, 1))
+        oh_day_test = self.day_onehot_scaler.transform(self.x_test_intra.iloc[:, -2].values.reshape(-1, 1))
+        oh_day_daily = self.day_onehot_scaler.transform(self.dailydata.iloc[:, -2].values.reshape(-1, 1))
+
+        self.month_onehot_scaler = OneHotEncoder(sparse_output=False)
+        oh_month_train = self.day_onehot_scaler.fit_transform(self.x_train_intra.iloc[:, -1].values.reshape(-1, 1))
+        oh_month_test = self.day_onehot_scaler.transform(self.x_test_intra.iloc[:, -1].values.reshape(-1, 1))
+        oh_month_daily = self.day_onehot_scaler.transform(self.dailydata.iloc[:, -1].values.reshape(-1, 1))
+
+        self.x_train_intra = self.x_train_intra.iloc[:, :-2]
+        self.x_test_intra = self.x_test_intra.iloc[:, :-2]
+        self.dailydata = self.dailydata.iloc[:, :-2]
+
+        self.x_train_intra = gt.add_arr_to_df(self.x_train_intra, oh_day_train)
+        self.x_test_intra = gt.add_arr_to_df(self.x_test_intra, oh_day_test)
+        self.dailydata = gt.add_arr_to_df(self.dailydata, oh_day_daily)
+
+        self.x_train_intra = gt.add_arr_to_df(self.x_train_intra, oh_month_train)
+        self.x_test_intra = gt.add_arr_to_df(self.x_test_intra, oh_month_test)
+        self.dailydata = gt.add_arr_to_df(self.dailydata, oh_month_daily)
 
     def scale_y_pnl_data(self):
         print('\nScaling Y-pnl Data')
@@ -230,19 +260,16 @@ class LstmDataHandler:
             try:
                 trade_dt = y_pnl_df.loc[train_ind, 'DateTime']
 
-                x_daily_input = self.dailydata[self.dailydata['Date']< trade_dt.date()].tail(32).values[:, 1:]
-                x_daily_input = gt.pad_to_length(x_daily_input, 32)
+                x_daily_input = self.dailydata[self.dailydata['Date'] < trade_dt.date()].tail(daily_len).values[:, 1:]
+                x_daily_input = gt.pad_to_length(x_daily_input, daily_len)
 
-                # x_intra_input = x_intraday[(x_intraday['DateTime'] <= trade_dt) &
-                #                            (x_intraday['DateTime'] >=
-                #                             trade_dt.replace(hour=self.data_params['start_hour'],
-                #                                              minute=self.data_params['start_minute']))].values[:, 1:]
                 x_intra_input = x_intraday[(x_intraday['DateTime'] <= trade_dt) &
                                            (x_intraday['DateTime'] >=
                                             trade_dt.replace(hour=self.data_params['start_hour'],
                                                              minute=self.data_params['start_minute']))]
-                x_intra_input = x_intra_input.tail(32).values[:, 1:]
-                x_intra_input = gt.pad_to_length(x_intra_input, 32)
+
+                x_intra_input = x_intra_input.tail(intra_len).values[:, 1:]
+                x_intra_input = gt.pad_to_length(x_intra_input, intra_len)
 
                 y_pnl_input = np.array([y_pnl_df[y_pnl_df['DateTime'] == trade_dt].values[0, 1]])
 
@@ -323,6 +350,7 @@ class LstmDataHandler:
         self.y_test_wl_df = mt.summary_predicted(self.y_test_wl_df, 3, wl=True)
 
         self.prep_actual_wl_cols()
+        self.prep_actual_wl_cols(wl=False)
 
     def prep_actual_wl_cols(self, wl=True):
         if wl:
@@ -333,16 +361,17 @@ class LstmDataHandler:
 
         else:
             actual_wl = (
-                self.y_test_pnl_df.apply(lambda row: 'Win' if row['PnL'] > 0  else 'Loss', axis=1))
+                self.y_test_pnl_df.apply(lambda row: 'Win' if row['PnL'] > 0 else 'Loss', axis=1))
             self.y_test_pnl_df['Actual_wl'] = actual_wl
-            cols = list(self.y_test_pnl_df)
+
+            cols = list(self.y_test_pnl_df.columns)
             cols.insert(2, cols.pop(cols.index('Actual_wl')))
             self.y_test_pnl_df = self.y_test_pnl_df[cols]
 
             pred_wl = self.y_test_pnl_df.apply(lambda row: 'Win' if row['Pred'] > 0 else 'Loss', axis=1)
             self.y_test_pnl_df['Pred_wl'] = pred_wl
 
-            cols = list(self.y_test_pnl_df)
+            cols = list(self.y_test_pnl_df.columns)
             cols.insert(4, cols.pop(cols.index('Pred_wl')))
             self.y_test_pnl_df = self.y_test_pnl_df[cols]
 
@@ -357,17 +386,16 @@ class LstmDataHandler:
 
         conf_matrix = confusion_matrix(df['Actual_wl'], df['Pred_wl'], labels=['Win', 'Loss'])
         conf_matrix = pd.DataFrame(conf_matrix, columns=['Pred_Pos', 'Pred_Neg'], index=['Actual_Pos', 'Actual_Neg'])
+        conf_matrix = pd.DataFrame(conf_matrix).transpose()
         print('\nConfusion Matrix')
         print(conf_matrix)
 
-        class_report = classification_report(df['Actual_wl'], df['Pred_wl'], target_names=['Win', 'Loss'])
+        class_report = classification_report(df['Actual_wl'], df['Pred_wl'], target_names=['Win', 'Loss'],
+                                             output_dict=True)
         print("\nClassification Report")
         print(class_report)
 
-        accuracy = accuracy_score(df['Actual_wl'], df['Pred_wl'])
-        print("\nAccuracy Score: {:.2f}".format(accuracy))
-
-        return conf_matrix, class_report, accuracy
+        return conf_matrix, class_report
 
 
 class SaveHandler:
@@ -377,12 +405,17 @@ class SaveHandler:
         self.save_file = None
         self.trade_metrics = None
 
+        self.start_date = None
+        self.end_date = None
+
     def get_save_loc(self):
         sec = self.lstm_data.data_params['security']
         timeframe = self.lstm_data.data_params['time_frame']
+        self.start_date = self.lstm_data.data_params['start_train_date']
+        self.end_date = self.lstm_data.data_params['final_train_date']
 
-        save_loc = \
-            r'C:\Users\jmdub\Documents\Trading\Futures\Strategy Info\Double_Candles\ATR'
+        save_loc = self.lstm_data.data_params['trade_dat_loc']
+
         save_loc = f'{save_loc}\\{sec}\\{timeframe}\\{timeframe}_test_20years\\Results'
         os.makedirs(save_loc, exist_ok=True)
 
@@ -394,27 +427,32 @@ class SaveHandler:
             df = self.lstm_data.y_test_wl_df
         else:
             df = self.lstm_data.y_test_pnl_df
+
         od_correct = (df['Pred_PnL'] > 0).sum()
         od_tot = (df['Pred_PnL'] != 0).sum()
         od_percent = od_correct/od_tot
         od_rolling = df['Pred_PnL_Total'].values
         od_max = np.max(od_rolling)
         od_avg = np.mean(df['Pred_PnL'].values)
-        od_avg_win = np.mean(df[df['Pred_PnL'] > 0])
-        od_avg_loss = np.mean(df[df['Pred_PnL'] < 0])
+        od_avg_win = np.mean(df.loc[df['Pred_PnL'] > 0, 'Pred_PnL'])
+        od_avg_loss = np.mean(df.loc[df['Pred_PnL'] < 0, 'Pred_PnL'])
         od_max_draw = np.min(df['Pred_MaxDraw'].values)
 
-        td_correct = (df['Pred']/df['PnL'] > 0).sum()
+        td_correct = (len(df[(df['Pred_wl'] == "Win") & (df['PnL'] > 0)]) +
+                      len(df[(df['Pred_wl'] == "Loss") & (df['PnL'] < 0)]))
         td_tot = len(df.index)
         td_perecent = td_correct/td_tot
         df['Two_Dir_Pred_PnL'] = df.apply(
-            lambda row: abs(row['PnL']) if (row['Pred'] > 0 and row['PnL'] > 0) or (row['Pred'] < 0 and row['PnL'] < 0)
-            else -abs(row['PnL']), axis=1)
+            lambda row: abs(row['PnL']) if
+            (row['Pred_wl'] == 'Win' and row['PnL'] > 0) or
+            (row['Pred_wl'] == 'Loss' and row['PnL'] < 0) else -abs(row['PnL']), axis=1)
+
         td_rolling = pd.Series(df['Two_Dir_Pred_PnL']).cumsum().values
+        df['Two_Dir_Pred_Pnl_Total'] = td_rolling
         td_max = np.max(td_rolling)
         td_avg = np.mean(df['Two_Dir_Pred_PnL'].values)
-        td_avg_win = np.mean(df[df['Two_Dir_Pred_PnL'] > 0])
-        td_avg_loss = np.mean(df[df['Two_Dir_Pred_PnL'] < 0])
+        td_avg_win = np.mean(df.loc[df['Two_Dir_Pred_PnL'] > 0, 'Two_Dir_Pred_PnL'])
+        td_avg_loss = np.mean(df.loc[df['Two_Dir_Pred_PnL'] < 0, 'Two_Dir_Pred_PnL'])
         df['Two_Dir_Pred_MaxDraw'] = mt.calculate_max_drawdown(df['Two_Dir_Pred_PnL'])
         td_max_draw = np.min(df['Two_Dir_Pred_MaxDraw'].values)
 
@@ -427,25 +465,31 @@ class SaveHandler:
 
     def save_metrics(self, side, param, dfs, sheet_name, stack_row=False):
         self.save_file = f'{self.save_loc}\\predictions_{side}_{param}.xlsx'
+        sheet_name = f'{side}_{sheet_name}'
 
-        if os.path.exists(self.save_loc):
+        if os.path.exists(self.save_file):
             # Load the existing workbook
             book = load_workbook(self.save_file)
-            with pd.ExcelWriter(self.save_file, engine='openpyxl', mode='a') as writer:
-                writer.book = book
+            if not book.sheetnames:
+                book.create_sheet(sheet_name)
+                book.active.title = sheet_name
+
+            with pd.ExcelWriter(self.save_file, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
                 start_positions = get_excel_sheet_df_positions(dfs, stack_row)
-                self.write_metrics_to_excel(writer, side, dfs, sheet_name, start_positions)
+                self.write_metrics_to_excel(writer, dfs, sheet_name, start_positions)
 
         else:
             # Create a new Excel file
+            create_new_excel_file(self.save_file, sheet_name)
             with pd.ExcelWriter(self.save_file, engine='openpyxl') as writer:
                 start_positions = get_excel_sheet_df_positions(dfs, stack_row)
-                self.write_metrics_to_excel(writer, side, dfs, sheet_name, start_positions)
+                self.write_metrics_to_excel(writer, dfs, sheet_name, start_positions)
 
-    def write_metrics_to_excel(self, writer, side, dfs, sheet_name, start_positions):
+    def write_metrics_to_excel(self, writer, dfs, sheet_name, start_positions):
         for df, (startrow, startcol) in zip(dfs, start_positions):
-            df.to_excel(writer, sheet_name=f'{side}_{sheet_name}',
-                        startrow=startrow, startcol=startcol, index=False)
+            df.to_excel(writer, sheet_name=sheet_name,
+                        startrow=startrow, startcol=startcol)
+
 
 def get_excel_sheet_df_positions(dfs, stack_row):
     start_positions = [(0, 0)]
@@ -454,19 +498,26 @@ def get_excel_sheet_df_positions(dfs, stack_row):
         if stack_row:
             start_row = len(dfs[0])
             for df in dfs[1:]:
-                start_row += 1
+                start_row += 2
                 start_positions.append((start_row, 0))
                 start_row += len(df)
         else:
             start_row = 0
-            start_col = len(dfs[0].columns) + 1
+            start_col = len(dfs[0].columns) + 2
             for df in dfs[1:]:
                 start_positions.append((start_row, start_col))
-                start_row += len(df) + 1
+                start_row += len(df) + 2
 
     return start_positions
 
 
+def create_new_excel_file(file_path, sheet_name):
+    if not os.path.exists(file_path):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = sheet_name
+        wb.save(file_path)
+        wb.close()
 
 
 

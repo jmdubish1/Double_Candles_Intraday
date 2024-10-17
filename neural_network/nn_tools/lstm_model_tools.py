@@ -25,13 +25,14 @@ class LstmOptModel:
         self.epochs = lstm_dict['epochs']
         self.batch_s = lstm_dict['batch_size']
         self.test_size = lstm_dict['test_size']
+        self.max_acc = lstm_dict['max_accuracy']
         self.input_layer_daily = None
         self.input_layer_intraday = None
         self.win_loss_output = None
         self.float_output = None
 
         self.daily_len = 23
-        self.intra_len = 30
+        self.intra_len = 24
 
         self.model = None
         self.scheduler = None
@@ -40,6 +41,13 @@ class LstmOptModel:
 
         self.model_summary = None
         self.model_plot = None
+        self.model_save_path = None
+
+    def check_for_previous_model(self, lstm_data, side, param):
+        self.model_save_path = f'{lstm_data.trade_data.data_loc}\\Results\\{side}_{param}_model.h5'
+        previous_train = os.path.exists(self.model_save_path)
+
+        return previous_train
 
     def set_scheduler(self):
         self.scheduler = CustLRSchedule(initial_learning_rate=.03, decay_rate=0.00001)
@@ -48,15 +56,13 @@ class LstmOptModel:
         self.intra_len = intra_len
 
     def build_compile_model(self, lstm_data):
-        # print(full_data.prev_model_save)
-        # if not full_data.prev_model_loaded:
         print('\nBuilding New Model')
         self.set_scheduler()
         self.build_lstm_model(lstm_data.dailydata, lstm_data.intradata)
         self.compile_model(lstm_data)
 
     def compile_model(self, lstm_data):
-        self.optimizer = Adam(.00075)
+        self.optimizer = Adam(.0005)
 
         class_weights = compute_class_weight('balanced',
                                              classes=np.unique(lstm_data.y_train_wl_df['Win']),
@@ -88,7 +94,7 @@ class LstmOptModel:
 
         # Daily LSTM branch
         self.input_layer_daily = Input(self.input_shapes[0])
-        lstm_d1 = LSTM(units=64,
+        lstm_d1 = LSTM(units=48,
                        activation='tanh',
                        recurrent_activation='sigmoid',
                        return_sequences=True,  # Keep this to pass the sequence
@@ -117,7 +123,7 @@ class LstmOptModel:
 
         # Intraday LSTM branch
         self.input_layer_intraday = Input(self.input_shapes[1])
-        lstm_i1 = LSTM(units=128,
+        lstm_i1 = LSTM(units=192,
                        activation='tanh',
                        recurrent_activation='sigmoid',
                        return_sequences=True,
@@ -130,7 +136,7 @@ class LstmOptModel:
         drop_i1 = Dropout(0.05, name='drop_i1')(batch_n2)
 
         # Final LSTM layer for intraday data - set return_sequences=False
-        lstm_i2 = LSTM(units=92,
+        lstm_i2 = LSTM(units=96,
                        activation='tanh',
                        recurrent_activation='sigmoid',
                        return_sequences=False,
@@ -138,7 +144,7 @@ class LstmOptModel:
                        kernel_regularizer=l2(0.005),
                        name='lstm_i2')(drop_i1)
 
-        dense_i1 = Dense(units=48,
+        dense_i1 = Dense(units=64,
                          activation='tanh',
                          kernel_initializer=GlorotUniform(),
                          kernel_regularizer=l2(0.005),
@@ -165,14 +171,14 @@ class LstmOptModel:
                                   name='pnl_output')(dense_m1)
 
     def train_model(self, lstm_data):
-        lr_scheduler = ReduceLROnPlateau(monitor='loss', factor=0.95, patience=2, min_lr=.00001, verbose=1)
+        lr_scheduler = ReduceLROnPlateau(monitor='loss', factor=0.75, patience=2, min_lr=.00001, verbose=1)
         self.model_plot = LivePlotLosses()
         data_gen = CustomDataGenerator(lstm_data, self, self.batch_s)
-        # stop_at_95_accuracy = StopAtAccuracy(accuracy_threshold=0.98)
+        stop_at_accuracy = StopAtAccuracy(accuracy_threshold=self.max_acc)
         self.model.fit(data_gen,
                        epochs=self.epochs,
                        verbose=1,
-                       callbacks=[lr_scheduler, self.model_plot])
+                       callbacks=[lr_scheduler, self.model_plot, stop_at_accuracy])
 
     def evaluate_model(self, lstm_data):
         test_generator = CustomDataGenerator(lstm_data, self, self.batch_s, train=False)
@@ -200,13 +206,13 @@ class LstmOptModel:
         lstm_data.prep_predicted_data(wl_predictions, pnl_predictions)
 
         wl_con_mat = lstm_data.get_confusion_matrix_metrics()
-        wl_trade_metrics = lstm_data.get_trade_metrics()
-        wl_dfs = [lstm_data.y_test_wl_df, wl_trade_metrics, wl_con_mat]
+        save_handler.get_trade_metrics()
+        wl_dfs = [lstm_data.y_test_wl_df, save_handler.trade_metrics] + [pd.DataFrame(l) for l in wl_con_mat]
         save_handler.save_metrics(side, param, wl_dfs, 'WL')
 
         pnl_con_mat = lstm_data.get_confusion_matrix_metrics(wl=False)
-        pnl_trade_metrics = lstm_data.get_trade_metrics(wl=False)
-        pnl_dfs = [lstm_data.y_train_wl_df, pnl_trade_metrics, pnl_con_mat]
+        save_handler.get_trade_metrics(wl=False)
+        pnl_dfs = [lstm_data.y_test_pnl_df, save_handler.trade_metrics] + [pd.DataFrame(l) for l in pnl_con_mat]
         save_handler.save_metrics(side, param, pnl_dfs, 'PnL')
 
         model_dfs = [self.model_summary, model_metrics]
@@ -215,7 +221,11 @@ class LstmOptModel:
         self.save_plot_to_excel(save_handler, side)
 
         print(f'Data saved to: {save_handler.save_file}')
-        breakpoint()
+
+        model_save_loc = f'{save_handler.save_loc}\\{side}_{param}_model.h5'
+        self.model.save(model_save_loc)
+        print(f'Saved model to: {model_save_loc}')
+        # breakpoint()
 
     def save_plot_to_excel(self, save_handler, side):
         file_exists = os.path.exists(save_handler.save_file)
@@ -232,7 +242,7 @@ class LstmOptModel:
             ws = wb.create_sheet(sheet_name)
 
         img_loc = f'{save_handler.save_loc}\\temp_img.png'
-        self.model_plot.savefig(img_loc)
+        self.model_plot.fig.savefig(img_loc)
         img = Image(img_loc)
 
         plot_loc_excel = 'F2'

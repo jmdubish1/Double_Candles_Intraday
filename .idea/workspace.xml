@@ -4,11 +4,13 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="0f8d2bdc-b7dc-4eca-bfb4-9361faf947dc" name="Changes" comment="Better output analysis data">
+    <list default="true" id="0f8d2bdc-b7dc-4eca-bfb4-9361faf947dc" name="Changes" comment="Better output analysis data part 2">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/gen_data_tools/general_tools.py" beforeDir="false" afterPath="$PROJECT_DIR$/gen_data_tools/general_tools.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/neural_network/nn_run/lstm_main.py" beforeDir="false" afterPath="$PROJECT_DIR$/neural_network/nn_run/lstm_main.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/neural_network/nn_tools/lstm_data_tools.py" beforeDir="false" afterPath="$PROJECT_DIR$/neural_network/nn_tools/lstm_data_tools.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/neural_network/nn_tools/lstm_model_tools.py" beforeDir="false" afterPath="$PROJECT_DIR$/neural_network/nn_tools/lstm_model_tools.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/neural_network/nn_tools/lstm_trade_data_tools.py" beforeDir="false" afterPath="$PROJECT_DIR$/neural_network/nn_tools/lstm_trade_data_tools.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/neural_network/nn_tools/math_tools.py" beforeDir="false" afterPath="$PROJECT_DIR$/neural_network/nn_tools/math_tools.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -239,7 +241,15 @@
       <option name="project" value="LOCAL" />
       <updated>1729037791445</updated>
     </task>
-    <option name="localTasksCounter" value="5" />
+    <task id="LOCAL-00005" summary="Better output analysis data part 2">
+      <option name="closed" value="true" />
+      <created>1729105915858</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1729105915858</updated>
+    </task>
+    <option name="localTasksCounter" value="6" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -247,6 +257,7 @@
     <MESSAGE value="Better developed. No notes" />
     <MESSAGE value="Fixed a major issue where my PnL y data was implicitly non-stationary." />
     <MESSAGE value="Better output analysis data" />
-    <option name="LAST_COMMIT_MESSAGE" value="Better output analysis data" />
+    <MESSAGE value="Better output analysis data part 2" />
+    <option name="LAST_COMMIT_MESSAGE" value="Better output analysis data part 2" />
   </component>
 </project>

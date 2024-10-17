@@ -4,9 +4,8 @@ import pandas as pd
 import gen_data_tools.general_tools as gt
 
 class TradeData:
-    def __init__(self, trade_dict, setup_dict):
+    def __init__(self, trade_dict):
         self.trade_dict = trade_dict
-        self.setup_dict = setup_dict
         self.data_loc = str
         self.trade_df = None
         self.param_df = None
@@ -20,21 +19,21 @@ class TradeData:
         self.paramset_id = int
 
     def set_feather_loc(self):
-        self.data_loc = (f'{self.trade_dict["data_loc"]}\\{self.setup_dict["security"]}\\'
-                         f'{self.setup_dict["time_frame"]}\\{self.setup_dict["time_frame"]}'
-                         f'_test_{self.setup_dict["time_length"]}')
+        self.data_loc = (f'{self.trade_dict["trade_dat_loc"]}\\{self.trade_dict["security"]}\\'
+                         f'{self.trade_dict["time_frame"]}\\{self.trade_dict["time_frame"]}'
+                         f'_test_{self.trade_dict["time_length"]}')
 
     def get_trade_data(self):
         print('\nGetting Trade Data')
         self.set_feather_loc()
-        self.trade_df = pd.read_feather(f'{self.data_loc}\\{self.setup_dict["security"]}_'
-                                        f'{self.setup_dict["time_frame"]}_Double_Candle_289_trades.feather')
-        self.param_df = pd.read_feather(f'{self.data_loc}\\{self.setup_dict["security"]}_'
-                                        f'{self.setup_dict["time_frame"]}_Double_Candle_289_params.feather')
+        self.trade_df = pd.read_feather(f'{self.data_loc}\\{self.trade_dict["security"]}_'
+                                        f'{self.trade_dict["time_frame"]}_Double_Candle_289_trades.feather')
+        self.param_df = pd.read_feather(f'{self.data_loc}\\{self.trade_dict["security"]}_'
+                                        f'{self.trade_dict["time_frame"]}_Double_Candle_289_params.feather')
         self.trade_df['DateTime'] = gt.adjust_datetime(self.trade_df['DateTime'])
         self.trade_df = (
             self.trade_df)[self.trade_df['DateTime'].dt.date >=
-                           pd.to_datetime(self.setup_dict['start_train_date']).date()]
+                           pd.to_datetime(self.trade_dict['start_train_date']).date()]
 
     def set_pnl(self, side):
         self.trade_df['PnL'] = np.where(self.trade_df['side'] == side,
@@ -54,10 +53,14 @@ class TradeData:
 
     def separate_train_test(self, test_percent=.2):
         print('\nSeparating Train-Test')
-        uniq_dates = [d for d in np.unique(self.working_df['DateTime'].dt.date)]
-        test_size = int(len(uniq_dates)*test_percent)
-        self.test_dates = random.sample(uniq_dates, test_size)
-        self.train_dates = [item for item in uniq_dates if item not in self.test_dates]
+        uniq_dates_full = [d for d in np.unique(self.working_df['DateTime'].dt.date)]
+        last_2month_test = uniq_dates_full[-92:]
+        uniq_tf_split = uniq_dates_full[:-92]
+
+        # test_size = int(len(uniq_tf_split)*test_percent)
+        # self.test_dates = random.sample(uniq_tf_split, test_size)
+        self.test_dates = self.test_dates + last_2month_test
+        self.train_dates = [item for item in uniq_tf_split if item not in self.test_dates]
 
         self.y_train_df = self.working_df[self.working_df['DateTime'].dt.date.isin(self.train_dates)]
         self.y_test_df = self.working_df[self.working_df['DateTime'].dt.date.isin(self.test_dates)]

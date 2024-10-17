@@ -20,7 +20,7 @@ pd.options.mode.chained_assignment = None  # default='warn'
 setup_dict = {
     'model_type': 'LSTM',
     'security': 'NQ',
-    'other_securities': ['RTY', 'ES', 'YM', 'GC', 'CL'],
+    'other_securities': ['RTY', 'ES', 'YM'], #, 'GC', 'CL'],
     'sides': ['Bull', 'Bear'],
     'time_frame': '15min',
     'time_length': '20years',
@@ -34,26 +34,30 @@ setup_dict = {
 }
 
 lstm_model_dict = {
-    'epochs': 1,
+    'epochs': 125,
     'batch_size': 16,
-    'test_size': 10
-}
-
-trade_data_dict = {
-    'data_loc': r'C:\Users\jmdub\Documents\Trading\Futures\Strategy Info\Double_Candles\ATR'
+    'test_size': 5,
+    'max_accuracy': .9
 }
 
 
 def main():
-    lstm_data = ldt.LstmDataHandler(setup_dict, trade_data_dict)
+    lstm_data = ldt.LstmDataHandler(setup_dict)
     lstm_data.load_prep_daily_data()
     lstm_data.load_prep_intra_data()
     for side in ['Bull', 'Bear']:
         lstm_data.get_trade_data(side)
         pnl_summary = lstm_data.trade_data.trade_df.groupby(['side', 'paramset_id'], as_index=False)['PnL'].sum()
-        pnl_summary = pnl_summary[pnl_summary['PnL'] > 0]
+        pnl_summary = pnl_summary[pnl_summary['PnL'] > -2500]
         lstm_data.trade_data.adjust_pnl()
         for param in np.unique(pnl_summary['paramset_id'])[::-1]:
+            lstm_model = lmt.LstmOptModel(lstm_model_dict)
+            previous_train = lstm_model.check_for_previous_model(lstm_data, side, param)
+
+            if previous_train:
+                print(f'Skipping training param: {param} : {side}')
+                continue
+
             lstm_data.trade_data.create_working_df(paramset_id=param, side=side)
             work_df = lstm_data.trade_data.working_df
             if len(work_df) == 0:
@@ -67,12 +71,10 @@ def main():
             lstm_data.scale_y_pnl_data()
             lstm_data.onehot_y_wl_data()
 
-            lstm_model = lmt.LstmOptModel(lstm_model_dict)
             lstm_model.set_intra_len(lstm_data.intra_len)
             lstm_model.build_compile_model(lstm_data)
             lstm_model.train_model(lstm_data)
             lstm_model.predict_data_evaluate(lstm_data, param, side)
-
 
 if __name__ == '__main__':
     main()
