@@ -4,11 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="0f8d2bdc-b7dc-4eca-bfb4-9361faf947dc" name="Changes" comment="Improvement in model flow. Now saves model and passes models that have been trained.">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/neural_network/nn_run/lstm_main.py" beforeDir="false" afterPath="$PROJECT_DIR$/neural_network/nn_run/lstm_main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/neural_network/nn_tools/lstm_model_tools.py" beforeDir="false" afterPath="$PROJECT_DIR$/neural_network/nn_tools/lstm_model_tools.py" afterDir="false" />
-    </list>
+    <list default="true" id="0f8d2bdc-b7dc-4eca-bfb4-9361faf947dc" name="Changes" comment="Improvements in model flow" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -45,20 +41,20 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "Python.dbl_trade_template.executor": "Run",
-    "Python.general_tools.executor": "Run",
-    "Python.lstm_data_tools.executor": "Run",
-    "Python.lstm_main.executor": "Run",
-    "Python.scratch.executor": "Run",
-    "Python.scratch2.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "git-widget-placeholder": "master",
-    "last_opened_file_path": "C:/Users/jmdub/PycharmProjects/AlgoParamOptimization_4_0",
-    "run.code.analysis.last.selected.profile": "pProject Default"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Python.dbl_trade_template.executor&quot;: &quot;Run&quot;,
+    &quot;Python.general_tools.executor&quot;: &quot;Run&quot;,
+    &quot;Python.lstm_data_tools.executor&quot;: &quot;Run&quot;,
+    &quot;Python.lstm_main.executor&quot;: &quot;Run&quot;,
+    &quot;Python.scratch.executor&quot;: &quot;Run&quot;,
+    &quot;Python.scratch2.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/jmdub/PycharmProjects/AlgoParamOptimization_4_0&quot;,
+    &quot;run.code.analysis.last.selected.profile&quot;: &quot;pProject Default&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="C:\Users\jmdub\PycharmProjects\Double_Candles_3\dblc_run_scripts" />
@@ -253,7 +249,15 @@
       <option name="project" value="LOCAL" />
       <updated>1729208221611</updated>
     </task>
-    <option name="localTasksCounter" value="7" />
+    <task id="LOCAL-00007" summary="Improvements in model flow">
+      <option name="closed" value="true" />
+      <created>1729529516631</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1729529516631</updated>
+    </task>
+    <option name="localTasksCounter" value="8" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -263,6 +267,7 @@
     <MESSAGE value="Better output analysis data" />
     <MESSAGE value="Better output analysis data part 2" />
     <MESSAGE value="Improvement in model flow. Now saves model and passes models that have been trained." />
-    <option name="LAST_COMMIT_MESSAGE" value="Improvement in model flow. Now saves model and passes models that have been trained." />
+    <MESSAGE value="Improvements in model flow" />
+    <option name="LAST_COMMIT_MESSAGE" value="Improvements in model flow" />
   </component>
 </project>
