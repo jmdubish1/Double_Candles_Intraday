@@ -22,7 +22,7 @@ setup_dict = {
     'security': 'NQ',
     'other_securities': ['RTY', 'ES', 'YM'], #, 'GC', 'CL'],
     'sides': ['Bull', 'Bear'],
-    'time_frame': '15min',
+    'time_frame': '5min',
     'time_length': '20years',
     'data_loc': r'C:\Users\jmdub\Documents\Trading\Futures\Strategy Info\data',
     'strat_dat_loc': r'C:\Users\jmdub\Documents\Trading\Futures\Strategy Info\Double Candles',
@@ -35,7 +35,7 @@ setup_dict = {
 
 lstm_model_dict = {
     'epochs': 125,
-    'batch_size': 16,
+    'batch_size': 32,
     'test_size': 5,
     'max_accuracy': .9
 }
@@ -72,8 +72,8 @@ def main():
             lstm_data.onehot_y_wl_data()
 
             lstm_model.set_intra_len(lstm_data.intra_len)
-            lstm_model.build_compile_model(lstm_data)
-            lstm_model.train_model(lstm_data)
+            lstm_model.build_compile_model(lstm_data, asym_mse=True)
+            lstm_model.train_model(lstm_data, asym_mse=True)
             lstm_model.predict_data_evaluate(lstm_data, param, side)
 
 if __name__ == '__main__':

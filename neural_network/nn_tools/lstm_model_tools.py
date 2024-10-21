@@ -55,14 +55,14 @@ class LstmOptModel:
     def set_intra_len(self, intra_len):
         self.intra_len = intra_len
 
-    def build_compile_model(self, lstm_data):
+    def build_compile_model(self, lstm_data, asym_mse=False):
         print('\nBuilding New Model')
         self.set_scheduler()
         self.build_lstm_model(lstm_data.dailydata, lstm_data.intradata)
-        self.compile_model(lstm_data)
+        self.compile_model(lstm_data, asym_mse)
 
-    def compile_model(self, lstm_data):
-        self.optimizer = Adam(.0005)
+    def compile_model(self, lstm_data, asym_mse=False):
+        self.optimizer = Adam(.00025)
 
         class_weights = compute_class_weight('balanced',
                                              classes=np.unique(lstm_data.y_train_wl_df['Win']),
@@ -74,11 +74,20 @@ class LstmOptModel:
 
         self.model = Model(inputs=[self.input_layer_daily, self.input_layer_intraday],
                            outputs=[self.win_loss_output, self.float_output])
-        self.model.compile(optimizer=self.optimizer,
-                           loss={'wl_classification': loss_fn_wl,
-                                 'pnl_output': 'mse'},
-                           metrics={'wl_classification': 'accuracy',
-                                    'pnl_output': 'mse'})
+
+        if asym_mse:
+            self.model.compile(optimizer=self.optimizer,
+                               loss={'wl_classification': loss_fn_wl,
+                                     'pnl_output': asymmetric_mse},
+                               metrics={'wl_classification': 'accuracy',
+                                        'pnl_output': asymmetric_mse})
+        else:
+            self.model.compile(optimizer=self.optimizer,
+                               loss={'wl_classification': loss_fn_wl,
+                                     'pnl_output': 'mse'},
+                               metrics={'wl_classification': 'accuracy',
+                                        'pnl_output': 'mse'})
+
         print('New Model Created')
         self.get_model_summary_df()
 
@@ -123,7 +132,7 @@ class LstmOptModel:
 
         # Intraday LSTM branch
         self.input_layer_intraday = Input(self.input_shapes[1])
-        lstm_i1 = LSTM(units=192,
+        lstm_i1 = LSTM(units=128,
                        activation='tanh',
                        recurrent_activation='sigmoid',
                        return_sequences=True,
@@ -136,7 +145,7 @@ class LstmOptModel:
         drop_i1 = Dropout(0.05, name='drop_i1')(batch_n2)
 
         # Final LSTM layer for intraday data - set return_sequences=False
-        lstm_i2 = LSTM(units=96,
+        lstm_i2 = LSTM(units=64,
                        activation='tanh',
                        recurrent_activation='sigmoid',
                        return_sequences=False,
@@ -170,9 +179,9 @@ class LstmOptModel:
                                   activation='tanh',
                                   name='pnl_output')(dense_m1)
 
-    def train_model(self, lstm_data):
+    def train_model(self, lstm_data, asym_mse):
         lr_scheduler = ReduceLROnPlateau(monitor='loss', factor=0.75, patience=2, min_lr=.00001, verbose=1)
-        self.model_plot = LivePlotLosses()
+        self.model_plot = LivePlotLosses(asym_mse)
         data_gen = CustomDataGenerator(lstm_data, self, self.batch_s)
         stop_at_accuracy = StopAtAccuracy(accuracy_threshold=self.max_acc)
         self.model.fit(data_gen,
@@ -347,18 +356,27 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
             np.random.shuffle(self.sample_ind_list)
 
 
+def asymmetric_mse(y_true, y_pred):
+    error = y_true - y_pred
+    sign_penalty = tf.where(tf.less(y_true * y_pred, 0), 1.25, 1.0)
+
+    return tf.reduce_mean(sign_penalty * tf.square(error))
+
+
 def weighted_categorical_crossentropy(class_weights):
     def loss(y_true, y_pred):
         y_true = tf.cast(y_true, tf.float32)
         weights = tf.reduce_sum(class_weights * y_true, axis=-1)
+
         return tf.reduce_mean(weights * tf.keras.losses.categorical_crossentropy(y_true, y_pred))
 
     return loss
 
 
 class LivePlotLosses(Callback):
-    def __init__(self):
+    def __init__(self, asym_mse=False):
         super(LivePlotLosses, self).__init__()
+        self.asym_mse = asym_mse
         self.epochs = []
         self.losses = []
         self.wl_classification_losses = []
@@ -371,13 +389,17 @@ class LivePlotLosses(Callback):
         self.fig.tight_layout()
 
     def on_epoch_end(self, epoch, logs=None):
+        if self.asym_mse:
+            pnl_mse = 'pnl_output_asymmetric_mse'
+        else:
+            pnl_mse = 'pnl_output_mse'
         logs = logs or {}
         self.epochs.append(epoch + 1)  # Accumulate epochs
         self.losses.append(logs.get('loss'))
         self.wl_classification_losses.append(logs.get('wl_classification_loss'))
-        self.pnl_output_losses.append(logs.get('pnl_output_loss'))
+        self.pnl_output_losses.append(logs.get(pnl_mse))
         self.wl_classification_accuracies.append(logs.get('wl_classification_accuracy'))
-        self.pnl_output_mses.append(logs.get('pnl_output_mse'))
+        self.pnl_output_mses.append(logs.get(pnl_mse))
 
         # Clear previous plots
         for ax in self.axs.flat:
