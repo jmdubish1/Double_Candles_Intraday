@@ -1,25 +1,21 @@
 import numpy as np
 import os
-import random
-import copy
 import pandas as pd
-import neural_network.nn_tools.math_tools as mt
-import gen_data_tools.general_tools as gt
-import neural_network.nn_tools.lstm_trade_data_tools as tdt
-from sklearn.preprocessing import RobustScaler, StandardScaler, OneHotEncoder
-from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
+import data_tools.math_tools as mt
+import data_tools.general_tools as gt
+import data_tools.data_trade_tools as tdt
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.metrics import confusion_matrix, classification_report
 from datetime import datetime, timedelta
 import openpyxl
 from openpyxl import load_workbook
-
-# np.random.seed(42)
 
 
 class LstmDataHandler:
     def __init__(self, data_param_dict):
         self.data_params = data_param_dict
         self.all_secs = [self.data_params['security']] + self.data_params['other_securities']
-        self.trade_data = tdt.TradeData(data_param_dict)
+        self.trade_data = tdt.TradeData
 
         self.dailydata = None
         self.intradata = None
@@ -43,11 +39,6 @@ class LstmDataHandler:
 
         self.intra_len = 0
         self.wl_ratio = 0
-
-    def get_trade_data(self, side):
-        self.trade_data.get_trade_data()
-        self.set_daily_time_len()
-        self.trade_data.set_pnl(side)
 
     def set_daily_time_len(self):
         open_time = datetime.strptime(f'{self.data_params["start_hour"]}:00', '%H:%M')
@@ -152,24 +143,6 @@ class LstmDataHandler:
             self.dailydata = df
         else:
             self.intradata = df
-
-    def set_intraday_data(self):
-        print('\nSetting Intraday Data')
-        sec = self.data_params['security']
-
-        self.intradata['Candle_Size_OC'] = ((self.intradata[f'{sec}_Close'] - self.intradata[f'{sec}_Open'])/
-                                            self.intradata[f'{sec}_Close'])
-
-        self.intradata['Candle_Ratio_OC'] = \
-            ((self.intradata[f'{sec}_Close'] - self.intradata[f'{sec}_Open'])/
-             (self.intradata[f'{sec}_Close'].shift(1) - self.intradata[f'{sec}_Open'].shift(1)))
-
-        self.intradata['Candle_Size_HL'] = ((self.intradata[f'{sec}_High'] - self.intradata[f'{sec}_Low'])/
-                                            self.intradata[f'{sec}_High'])
-
-        self.intradata['Candle_Ratio_HL'] = \
-            ((self.intradata[f'{sec}_High'] - self.intradata[f'{sec}_Low']) /
-             (self.intradata[f'{sec}_High'].shift(1) - self.intradata[f'{sec}_Low'].shift(1)))
 
     def set_x_train_test_datasets(self):
         print('\nBuilding X-Train and Test Datasets')
@@ -346,8 +319,8 @@ class LstmDataHandler:
 
         self.add_close_to_test_dfs()
 
-        self.y_test_pnl_df = mt.summary_predicted(self.y_test_pnl_df, 3)
-        self.y_test_wl_df = mt.summary_predicted(self.y_test_wl_df, 3, wl=True)
+        self.y_test_pnl_df = mt.summary_predicted(self.y_test_pnl_df)
+        self.y_test_wl_df = mt.summary_predicted(self.y_test_wl_df, wl=True)
 
         self.prep_actual_wl_cols()
         self.prep_actual_wl_cols(wl=False)

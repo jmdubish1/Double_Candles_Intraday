@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from numba import jit
 
 
 def create_atr(data, n=8):
@@ -129,7 +130,52 @@ def calculate_algo_lstm_ratio(algo_series, lstm_series, max_lever):
     return draw_ratio_list
 
 
-def summary_predicted(df, max_lever, wl=False):
+def calculate_ema_numba(df, price_colname, window_size, smoothing_factor=2):
+    result = calculate_ema_inner(
+        price_array=df[price_colname].to_numpy(),
+        window_size=window_size,
+        smoothing_factor=smoothing_factor
+    )
+
+    # return pd.Series(result, index=df.index, name="result", dtype=float)
+    result = np.array(standardize_ema(result))
+
+    return result
+
+
+@jit(nopython=True)
+def calculate_ema_inner(price_array, window_size, smoothing_factor):
+    result = np.empty(len(price_array), dtype="float64")
+    sma_list = list()
+    for i in range(len(result)):
+
+        if i < window_size - 1:
+            # assign NaN to row, append price to simple moving average list
+            result[i] = np.nan
+            sma_list.append(price_array[i])
+        elif i == window_size - 1:
+            # calculate simple moving average
+            sma_list.append(price_array[i])
+            result[i] = sum(sma_list) / len(sma_list)
+        else:
+            # compute exponential moving averages according to formula
+            result[i] = ((price_array[i] * (smoothing_factor / (window_size + 1))) +
+                         (result[i - 1] * (1 - (smoothing_factor / (window_size + 1)))))
+
+    return result
+
+
+def standardize_ema(arr, lag=12):
+    # Create an output array of the same length, initialized to 1
+    standardized_arr = np.ones_like(arr, dtype=float)
+
+    # For elements that have at least `lag` elements before them
+    standardized_arr[lag:] = arr[lag:] / arr[:-lag]
+
+    return standardized_arr
+
+
+def summary_predicted(df, wl=False):
     df['PnL'] = df['PnL']*df['Close']/100
     df['Algo_PnL_Total'] = df['PnL'].cumsum()
     df['Algo_MaxDraw'] = calculate_max_drawdown(df['Algo_PnL_Total'])
@@ -139,7 +185,6 @@ def summary_predicted(df, max_lever, wl=False):
         df['Pred_PnL'] = np.where(df['Pred'] < 0, 0, df['PnL'])
     df['Pred_PnL_Total'] = df['Pred_PnL'].cumsum()
     df['Pred_MaxDraw'] = calculate_max_drawdown(df['Pred_PnL_Total'])
-
 
     df.fillna(0, inplace=True)
 

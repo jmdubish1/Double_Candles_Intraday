@@ -1,27 +1,29 @@
-import random
-import time
 import numpy as np
 import pandas as pd
 import os
 import io
 import tensorflow as tf
-from tensorflow.keras.models import load_model, Model
+from datetime import timedelta
+from tensorflow.keras.models import Model
 from tensorflow.keras.layers import LSTM, Dense, Dropout, Input, Concatenate, BatchNormalization
 from tensorflow.keras.optimizers import Adam
-from keras.regularizers import l2, l1
+from keras.regularizers import l2
 from tensorflow.keras.initializers import GlorotUniform
-from tensorflow.keras.callbacks import ReduceLROnPlateau, Callback, EarlyStopping
+from tensorflow.keras.callbacks import ReduceLROnPlateau, Callback
 from sklearn.utils.class_weight import compute_class_weight
 import matplotlib.pyplot as plt
-import neural_network.nn_tools.math_tools as mt
-from openpyxl import load_workbook
-import neural_network.nn_tools.lstm_data_tools as ldt
+import data_tools.data_mkt_tools as lmt
 from openpyxl.drawing.image import Image
 import openpyxl
 
 
 class LstmOptModel:
-    def __init__(self, lstm_dict):
+    def __init__(self, lstm_dict, mkt_data, param, side):
+        self.lstm_dict = lstm_dict
+        self.mkt_data = mkt_data
+        self.side = side
+        self.param = param
+
         self.epochs = lstm_dict['epochs']
         self.batch_s = lstm_dict['batch_size']
         self.test_size = lstm_dict['test_size']
@@ -39,37 +41,26 @@ class LstmOptModel:
         self.optimizer = None
         self.input_shapes = None
 
-        self.model_summary = None
         self.model_plot = None
-        self.model_save_path = None
 
-    def check_for_previous_model(self, lstm_data, side, param):
-        self.model_save_path = f'{lstm_data.trade_data.data_loc}\\Results\\{side}_{param}_model.h5'
-        previous_train = os.path.exists(self.model_save_path)
-
-        return previous_train
-
-    def set_scheduler(self):
-        self.scheduler = CustLRSchedule(initial_learning_rate=.03, decay_rate=0.00001)
-
-    def set_intra_len(self, intra_len):
-        self.intra_len = intra_len
-
-    def build_compile_model(self, lstm_data, asym_mse=False):
+    def build_compile_model(self, asym_mse=False):
         print('\nBuilding New Model')
-        self.set_scheduler()
-        self.build_lstm_model(lstm_data.dailydata, lstm_data.intradata)
-        self.compile_model(lstm_data, asym_mse)
+        self.build_lstm_model(self.mkt_data.dailydata, self.mkt_data.intradata)
+        self.compile_model(asym_mse)
 
-    def compile_model(self, lstm_data, asym_mse=False):
-        self.optimizer = Adam(.00025)
-
+    def get_class_weights(self):
         class_weights = compute_class_weight('balanced',
-                                             classes=np.unique(lstm_data.y_train_wl_df['Win']),
-                                             y=lstm_data.y_train_wl_df['Win'])
+                                             classes=np.unique(self.mkt_data.y_train_wl_df['Win']),
+                                             y=self.mkt_data.y_train_wl_df['Win'])
         class_weight_dict_wl = {i: weight for i, weight in enumerate(class_weights)}
         print(f'Class Weights: {class_weight_dict_wl}\n')
 
+        return class_weights
+
+    def compile_model(self, asym_mse=False):
+        self.optimizer = Adam(self.lstm_dict['adam_optimizer'])
+
+        class_weights = self.get_class_weights()
         loss_fn_wl = weighted_categorical_crossentropy(class_weights)
 
         self.model = Model(inputs=[self.input_layer_daily, self.input_layer_intraday],
@@ -94,7 +85,7 @@ class LstmOptModel:
     def get_input_shapes(self, daily_data, intraday_data):
         """Plus 12 for number of months in year"""
         daily_shape = (self.daily_len, len(daily_data.columns) - 1)
-        intraday_shape = (self.intra_len, len(intraday_data.columns) - 1)
+        intraday_shape = (self.mkt_data.intra_len, len(intraday_data.columns) - 1)
 
         self.input_shapes = [daily_shape, intraday_shape]
 
@@ -132,7 +123,7 @@ class LstmOptModel:
 
         # Intraday LSTM branch
         self.input_layer_intraday = Input(self.input_shapes[1])
-        lstm_i1 = LSTM(units=128,
+        lstm_i1 = LSTM(units=self.lstm_dict['lstm_i1_nodes'],
                        activation='tanh',
                        recurrent_activation='sigmoid',
                        return_sequences=True,
@@ -145,7 +136,7 @@ class LstmOptModel:
         drop_i1 = Dropout(0.05, name='drop_i1')(batch_n2)
 
         # Final LSTM layer for intraday data - set return_sequences=False
-        lstm_i2 = LSTM(units=64,
+        lstm_i2 = LSTM(units=self.lstm_dict['lstm_i2_nodes'],
                        activation='tanh',
                        recurrent_activation='sigmoid',
                        return_sequences=False,
@@ -153,7 +144,7 @@ class LstmOptModel:
                        kernel_regularizer=l2(0.005),
                        name='lstm_i2')(drop_i1)
 
-        dense_i1 = Dense(units=64,
+        dense_i1 = Dense(units=self.lstm_dict['dense_i1_nodes'],
                          activation='tanh',
                          kernel_initializer=GlorotUniform(),
                          kernel_regularizer=l2(0.005),
@@ -164,7 +155,7 @@ class LstmOptModel:
 
         drop_m1 = Dropout(0.05, name='drop_m1')(merged_lstm)
 
-        dense_m1 = Dense(units=32,
+        dense_m1 = Dense(units=self.lstm_dict['dense_m1_nodes'],
                          activation='tanh',
                          kernel_initializer=GlorotUniform(),
                          kernel_regularizer=l2(0.005),
@@ -179,90 +170,22 @@ class LstmOptModel:
                                   activation='tanh',
                                   name='pnl_output')(dense_m1)
 
-    def train_model(self, lstm_data, asym_mse):
+    def train_model(self, asym_mse, previous_train):
+        if previous_train:
+            epochs = 50
+            acc_threshold = .975
+        else:
+            epochs = self.epochs
+            acc_threshold = self.max_acc
+
         lr_scheduler = ReduceLROnPlateau(monitor='loss', factor=0.75, patience=2, min_lr=.00001, verbose=1)
         self.model_plot = LivePlotLosses(asym_mse)
-        data_gen = CustomDataGenerator(lstm_data, self, self.batch_s)
-        stop_at_accuracy = StopAtAccuracy(accuracy_threshold=self.max_acc)
+        data_gen = CustomDataGenerator(self.mkt_data, self, self.batch_s)
+        stop_at_accuracy = StopAtAccuracy(accuracy_threshold=acc_threshold)
         self.model.fit(data_gen,
-                       epochs=self.epochs,
+                       epochs=epochs,
                        verbose=1,
                        callbacks=[lr_scheduler, self.model_plot, stop_at_accuracy])
-
-    def evaluate_model(self, lstm_data):
-        test_generator = CustomDataGenerator(lstm_data, self, self.batch_s, train=False)
-
-        # Evaluate the model on the test data
-        test_loss, test_wl_loss, test_pnl_loss, wl_accuracy, pnl_output_mse = self.model.evaluate(test_generator)
-
-        print(f'Test Loss: {test_loss:.4f}')
-        print(f'Win/Loss Classification Loss: {test_wl_loss:.4f}')
-        print(f'PNL Output Loss: {test_pnl_loss:.4f}')
-        print(f'WL Classification Acc: {wl_accuracy:.4f}')
-        print(f'PnL Output MSE: {pnl_output_mse:.4f}')
-
-        return test_loss, test_wl_loss, test_pnl_loss, wl_accuracy, pnl_output_mse
-
-    def predict_data_evaluate(self, lstm_data, param, side):
-        save_handler = ldt.SaveHandler(lstm_data)
-        model_metrics = self.evaluate_model(lstm_data)
-        model_metrics = pd.DataFrame(model_metrics).T
-        model_metrics.columns = ['test_loss', 'test_wl_loss', 'test_pnl_loss', 'wl_accuracy', 'pnl_output_mse']
-
-        test_generator = CustomDataGenerator(lstm_data, self, self.batch_s, train=False)
-
-        wl_predictions, pnl_predictions = self.model.predict(test_generator, verbose=1)
-        lstm_data.prep_predicted_data(wl_predictions, pnl_predictions)
-
-        wl_con_mat = lstm_data.get_confusion_matrix_metrics()
-        save_handler.get_trade_metrics()
-        wl_dfs = [lstm_data.y_test_wl_df, save_handler.trade_metrics] + [pd.DataFrame(l) for l in wl_con_mat]
-        save_handler.save_metrics(side, param, wl_dfs, 'WL')
-
-        pnl_con_mat = lstm_data.get_confusion_matrix_metrics(wl=False)
-        save_handler.get_trade_metrics(wl=False)
-        pnl_dfs = [lstm_data.y_test_pnl_df, save_handler.trade_metrics] + [pd.DataFrame(l) for l in pnl_con_mat]
-        save_handler.save_metrics(side, param, pnl_dfs, 'PnL')
-
-        model_dfs = [self.model_summary, model_metrics]
-        save_handler.save_metrics(side, param, model_dfs, 'Model')
-
-        self.save_plot_to_excel(save_handler, side)
-
-        print(f'Data saved to: {save_handler.save_file}')
-
-        model_save_loc = f'{save_handler.save_loc}\\{side}_{param}_model.h5'
-        self.model.save(model_save_loc)
-        print(f'Saved model to: {model_save_loc}')
-        # breakpoint()
-
-    def save_plot_to_excel(self, save_handler, side):
-        file_exists = os.path.exists(save_handler.save_file)
-        if not file_exists:
-            wb = openpyxl.Workbook()
-        else:
-            wb = openpyxl.load_workbook(save_handler.save_file)
-
-        # Select a sheet or create a new one
-        sheet_name = f'{side}_Model'
-        if sheet_name in wb.sheetnames:
-            ws = wb[sheet_name]
-        else:
-            ws = wb.create_sheet(sheet_name)
-
-        img_loc = f'{save_handler.save_loc}\\temp_img.png'
-        self.model_plot.fig.savefig(img_loc)
-        img = Image(img_loc)
-
-        plot_loc_excel = 'F2'
-        if file_exists:
-            plot_loc_excel = 'F12'
-        ws.add_image(img, plot_loc_excel)
-
-        wb.save(save_handler.save_file)
-
-        if os.path.exists(img_loc):
-            os.remove(img_loc)
 
     def get_model_summary_df(self):
         self.model.summary()
@@ -291,30 +214,9 @@ class LstmOptModel:
 """--------------------------------------------Custom Callbacks Work-------------------------------------------------"""
 
 
-class CustLRSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
-    def __init__(self, initial_learning_rate, decay_rate):
-        self.initial_learning_rate = initial_learning_rate
-        self.decay_rate = decay_rate
-
-    def __call__(self, step):
-        # Define the custom learning rate schedule here.
-        # For example, a simple exponential decay:
-        return self.initial_learning_rate / (1 + self.decay_rate * step)
-
-    def get_config(self):
-        # Required if you need to save the schedule.
-        return {
-            'initial_learning_rate': self.initial_learning_rate,
-            'decay_rate': self.decay_rate
-        }
-
-
-"""--------------------------------------------Custom Callbacks Work-------------------------------------------------"""
-
-
 class CustomDataGenerator(tf.keras.utils.Sequence):
-    def __init__(self, lstm_data, lstm_model, batch_size, train=True):
-        self.lstm_data = lstm_data
+    def __init__(self, mkt_data, lstm_model, batch_size, train=True):
+        self.mkt_data = mkt_data
         self.lstm_model = lstm_model
         self.train_tf = train
         self.sample_ind_list = []
@@ -333,10 +235,9 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
         start_ind = index * self.batch_size
         end_ind = (index + 1) * self.batch_size
         train_inds = self.sample_ind_list[start_ind:end_ind]
-        batch_gen = self.lstm_data.create_batch_input(train_inds,
-                                                      self.lstm_model.daily_len,
-                                                      self.lstm_model.intra_len,
-                                                      self.train_tf)
+        batch_gen = self.mkt_data.create_batch_input(train_inds,
+                                                     self.lstm_model.daily_len,
+                                                     self.train_tf)
 
         x_day_arr, x_intra_arr, y_pnl_arr, y_wl_arr = next(batch_gen)
 
@@ -344,12 +245,12 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
 
     def set_attributes(self):
         if self.train_tf:
-            self.sample_ind_list = list(self.lstm_data.y_train_pnl_df.index)
-            self.n_samples = len(self.lstm_data.trade_data.y_train_df)
+            self.sample_ind_list = list(self.mkt_data.y_train_pnl_df.index)
+            self.n_samples = len(self.mkt_data.trade_data.y_train_df)
 
         else:
-            self.sample_ind_list = list(self.lstm_data.y_test_pnl_df.index)
-            self.n_samples = len(self.lstm_data.trade_data.y_test_df)
+            self.sample_ind_list = list(self.mkt_data.y_test_pnl_df.index)
+            self.n_samples = len(self.mkt_data.trade_data.y_test_df)
 
     def on_epoch_end(self):
         if self.train_tf:
@@ -436,7 +337,7 @@ class LivePlotLosses(Callback):
 
 
 class StopAtAccuracy(Callback):
-    def __init__(self, accuracy_threshold=0.95):
+    def __init__(self, accuracy_threshold=.95):
         super(StopAtAccuracy, self).__init__()
         self.accuracy_threshold = accuracy_threshold
 
