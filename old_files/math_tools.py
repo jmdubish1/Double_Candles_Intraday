@@ -21,8 +21,10 @@ def create_atr(data, n=8):
 
 
 def set_various_data(df):
-    for c in ['ATR']:
-        df[c] = df[c]/df['Close']*100
+    df['ATR'] = create_atr(df, 8)/df['Close']*100
+    df['EMA'] = calculate_ema_numba(df, 'Close', 8)
+    df['EMA_Close'] = (df['Close'] - df['EMA']) / df['Close']*100
+    df['EMA'] = standardize_ema(df['EMA'], 8)
 
     return df
 
@@ -59,9 +61,9 @@ def add_high_low_diff(df, other_sec, sec_name):
     securities = other_sec + [sec_name]
     for sec in securities:
         df[f'{sec}_HL_diff'] = (
-                df[f'{sec}_High'] - df[f'{sec}_Low']) / ((df[f'{sec}_High'] + df[f'{sec}_Low'])/2)*1000
+                df[f'{sec}_High'] - df[f'{sec}_Low']) / ((df[f'{sec}_High'] + df[f'{sec}_Low'])/2)*100
         df[f'{sec}_OC_diff'] = (
-                df[f'{sec}_Open'] - df[f'{sec}_Close']) / ((df[f'{sec}_Open'] + df[f'{sec}_Close'])/2)*1000
+                df[f'{sec}_Open'] - df[f'{sec}_Close']) / ((df[f'{sec}_Open'] + df[f'{sec}_Close'])/2)*100
 
         df[f'{sec}_HL_Ratio'] = df[f'{sec}_HL_diff'] / df[f'{sec}_HL_diff'].shift(1)
         df[f'{sec}_OC_Ratio'] = df[f'{sec}_OC_diff'] / df[f'{sec}_OC_diff'].shift(1)
@@ -84,14 +86,17 @@ def scale_open_close(df):
 def smooth_vol_oi(df, securities):
     print('...smoothing vol, oi')
     for sec in securities:
-        volsmooth = df[f'{sec}_VolAvg']/df[f'{sec}_VolAvg'].shift(1)
-        df[f'{sec}_VolAvg'] = volsmooth.fillna(0)
+        volavg = df[f'{sec}_Vol'] / (df[f'{sec}_Vol'].rolling(window=23, min_periods=1).mean())
+        df[f'{sec}_Vol_Avg'] = volavg
 
-        df[f'{sec}_Vol'] = df[f'{sec}_Vol']/df[f'{sec}_Vol'].rolling(window=23, min_periods=1).mean()
+        volchng = df[f'{sec}_Vol'] / df[f'{sec}_Vol'].shift(1)
+        df[f'{sec}_Vol_Chng'] = volchng.fillna(0)
 
-        oi_avg = df[f'{sec}_OpenInt'].rolling(window=23, min_periods=1).mean()
-        oi_avg = oi_avg/oi_avg.shift(1)
+        oi_avg = df[f'{sec}_OpenInt'] / (df[f'{sec}_OpenInt'].rolling(window=23, min_periods=1).mean())
         df[f'{sec}_OpenInt'] = oi_avg.fillna(0)
+
+        oi_avg = df[f'{sec}_OpenInt']/df[f'{sec}_OpenInt'].shift(1)
+        df[f'{sec}_Oi_Chng'] = oi_avg.fillna(0)
 
     return df
 
@@ -101,7 +106,11 @@ def calculate_max_drawdown(pnl_series):
     arr = pnl_series.values
     for i in range(1, len(arr)):
         prev_max = np.max(arr[:i])
-        draw_list.append(min(0, arr[i] - prev_max))
+        draw_list.append(min(0, arr[i] - prev_max, arr[i-1]))
+
+    if len(draw_list) > 1:
+        draw_list.pop(0)
+        draw_list.append(draw_list[-1])
 
     return draw_list
 
@@ -138,7 +147,7 @@ def calculate_ema_numba(df, price_colname, window_size, smoothing_factor=2):
     )
 
     # return pd.Series(result, index=df.index, name="result", dtype=float)
-    result = np.array(standardize_ema(result))
+    # result = np.array(standardize_ema(result))
 
     return result
 
@@ -167,6 +176,7 @@ def calculate_ema_inner(price_array, window_size, smoothing_factor):
 
 def standardize_ema(arr, lag=12):
     # Create an output array of the same length, initialized to 1
+    arr = np.array(arr)
     standardized_arr = np.ones_like(arr, dtype=float)
 
     # For elements that have at least `lag` elements before them

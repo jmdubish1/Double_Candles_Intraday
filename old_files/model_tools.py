@@ -4,6 +4,10 @@ import os
 import io
 import tensorflow as tf
 from datetime import timedelta
+from tensorflow.keras.metrics import Precision, Recall, AUC
+
+from sklearn.metrics import balanced_accuracy_score
+from tensorflow.keras import backend as K
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import LSTM, Dense, Dropout, Input, Concatenate, BatchNormalization
 from tensorflow.keras.optimizers import Adam
@@ -12,9 +16,7 @@ from tensorflow.keras.initializers import GlorotUniform
 from tensorflow.keras.callbacks import ReduceLROnPlateau, Callback
 from sklearn.utils.class_weight import compute_class_weight
 import matplotlib.pyplot as plt
-import data_tools.data_mkt_tools as lmt
-from openpyxl.drawing.image import Image
-import openpyxl
+
 
 
 class LstmOptModel:
@@ -33,8 +35,8 @@ class LstmOptModel:
         self.win_loss_output = None
         self.float_output = None
 
-        self.daily_len = 23
-        self.intra_len = 24
+        self.daily_len = 12
+        self.intra_len = 12
 
         self.model = None
         self.scheduler = None
@@ -42,11 +44,12 @@ class LstmOptModel:
         self.input_shapes = None
 
         self.model_plot = None
+        self.model_summary = None
 
-    def build_compile_model(self, asym_mse=False):
+    def build_compile_model(self):
         print('\nBuilding New Model')
         self.build_lstm_model(self.mkt_data.dailydata, self.mkt_data.intradata)
-        self.compile_model(asym_mse)
+        self.compile_model()
 
     def get_class_weights(self):
         class_weights = compute_class_weight('balanced',
@@ -66,18 +69,37 @@ class LstmOptModel:
         self.model = Model(inputs=[self.input_layer_daily, self.input_layer_intraday],
                            outputs=[self.win_loss_output, self.float_output])
 
+        # if asym_mse:
+        #     # auc_metric = AUC(name='auc', curve='PR', num_thresholds=200)
+        #     self.model.compile(optimizer=self.optimizer,
+        #                        loss={'wl_class': loss_fn_wl,
+        #                              'pnl_output': asymmetric_mse},
+        #                        metrics={'wl_class': [Precision(thresholds=self.lstm_dict['recall_threshold'],
+        #                                                        name='precision'), 'accuracy'],
+        #                                 'pnl_output': asymmetric_mse})
+        # else:
+        #     self.model.compile(optimizer=self.optimizer,
+        #                        loss={'wl_class': loss_fn_wl,
+        #                              'pnl_output': 'mse'},
+        #                        metrics={'wl_class': 'accuracy',
+        #                                 'pnl_output': 'mse'})
+
         if asym_mse:
+            # auc_metric = AUC(name='auc', curve='PR', num_thresholds=200)
             self.model.compile(optimizer=self.optimizer,
-                               loss={'wl_classification': loss_fn_wl,
-                                     'pnl_output': asymmetric_mse},
-                               metrics={'wl_classification': 'accuracy',
-                                        'pnl_output': asymmetric_mse})
+                               loss={'wl_class': loss_fn_wl,
+                                     'pnl': asymmetric_mse},
+                               metrics={'wl_class': [bal_accuracy,
+                                                     specificity,
+                                                     Recall(thresholds=self.lstm_dict['opt_threshold'],
+                                                            name='recall')],
+                                        'pnl': asymmetric_mse})
         else:
             self.model.compile(optimizer=self.optimizer,
-                               loss={'wl_classification': loss_fn_wl,
-                                     'pnl_output': 'mse'},
-                               metrics={'wl_classification': 'accuracy',
-                                        'pnl_output': 'mse'})
+                               loss={'wl_class': loss_fn_wl,
+                                     'pnl': 'mse'},
+                               metrics={'wl_class': 'accuracy',
+                                        'pnl': 'mse'})
 
         print('New Model Created')
         self.get_model_summary_df()
@@ -94,7 +116,7 @@ class LstmOptModel:
 
         # Daily LSTM branch
         self.input_layer_daily = Input(self.input_shapes[0])
-        lstm_d1 = LSTM(units=48,
+        lstm_d1 = LSTM(units=32,
                        activation='tanh',
                        recurrent_activation='sigmoid',
                        return_sequences=True,  # Keep this to pass the sequence
@@ -102,12 +124,10 @@ class LstmOptModel:
                        kernel_regularizer=l2(0.005),
                        name='lstm_d1')(self.input_layer_daily)
 
-        batch_n1 = BatchNormalization(name='batch_n1')(lstm_d1)
-
-        drop_d1 = Dropout(0.05, name='drop_d1')(batch_n1)
+        drop_d1 = Dropout(0.025, name='drop_d1')(lstm_d1)
 
         # Final LSTM layer for daily data - set return_sequences=False
-        lstm_d2 = LSTM(units=32,
+        lstm_d2 = LSTM(units=24,
                        activation='tanh',
                        recurrent_activation='sigmoid',
                        return_sequences=False,
@@ -115,7 +135,7 @@ class LstmOptModel:
                        kernel_regularizer=l2(0.005),
                        name='lstm_d2')(drop_d1)
 
-        dense_d1 = Dense(units=32,
+        dense_d1 = Dense(units=16,
                          activation='tanh',
                          kernel_initializer=GlorotUniform(),
                          kernel_regularizer=l2(0.005),
@@ -131,9 +151,7 @@ class LstmOptModel:
                        kernel_regularizer=l2(0.005),
                        name='lstm_i1')(self.input_layer_intraday)
 
-        batch_n2 = BatchNormalization(name='batch_n2')(lstm_i1)
-
-        drop_i1 = Dropout(0.05, name='drop_i1')(batch_n2)
+        drop_i1 = Dropout(0.025, name='drop_i1')(lstm_i1)
 
         # Final LSTM layer for intraday data - set return_sequences=False
         lstm_i2 = LSTM(units=self.lstm_dict['lstm_i2_nodes'],
@@ -153,7 +171,7 @@ class LstmOptModel:
         # Combine the branches
         merged_lstm = Concatenate()([dense_d1, dense_i1])
 
-        drop_m1 = Dropout(0.05, name='drop_m1')(merged_lstm)
+        drop_m1 = Dropout(0.025, name='drop_m1')(merged_lstm)
 
         dense_m1 = Dense(units=self.lstm_dict['dense_m1_nodes'],
                          activation='tanh',
@@ -163,22 +181,27 @@ class LstmOptModel:
 
         # Output layers
         self.win_loss_output = Dense(2,
-                                     activation='softmax',
-                                     name='wl_classification')(dense_m1)
+                                     activation='sigmoid',
+                                     name='wl_class')(dense_m1)
 
         self.float_output = Dense(units=1,
                                   activation='tanh',
-                                  name='pnl_output')(dense_m1)
+                                  name='pnl')(dense_m1)
 
     def train_model(self, asym_mse, previous_train):
         if previous_train:
             epochs = 50
-            acc_threshold = .975
+            acc_threshold = .99
+            self.model.optimizer.learning_rate.assign(self.lstm_dict['adam_optimizer'] / 5)
         else:
             epochs = self.epochs
             acc_threshold = self.max_acc
 
-        lr_scheduler = ReduceLROnPlateau(monitor='loss', factor=0.75, patience=2, min_lr=.00001, verbose=1)
+        lr_scheduler = ReduceLROnPlateau(monitor='loss',
+                                         factor=0.8,
+                                         patience=2,
+                                         min_lr=.0000001,
+                                         verbose=2)
         self.model_plot = LivePlotLosses(asym_mse)
         data_gen = CustomDataGenerator(self.mkt_data, self, self.batch_s)
         stop_at_accuracy = StopAtAccuracy(accuracy_threshold=acc_threshold)
@@ -187,8 +210,10 @@ class LstmOptModel:
                        verbose=1,
                        callbacks=[lr_scheduler, self.model_plot, stop_at_accuracy])
 
-    def get_model_summary_df(self):
-        self.model.summary()
+    def get_model_summary_df(self, printft=True):
+        if printft:
+            self.model.summary()
+            breakpoint()
 
         summary_buf = io.StringIO()
         self.model.summary(print_fn=lambda x: summary_buf.write(x + "\n"))
@@ -241,7 +266,7 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
 
         x_day_arr, x_intra_arr, y_pnl_arr, y_wl_arr = next(batch_gen)
 
-        return [x_day_arr, x_intra_arr], {'wl_classification': y_wl_arr, 'pnl_output': y_pnl_arr}
+        return [x_day_arr, x_intra_arr], {'wl_class': y_wl_arr, 'pnl': y_pnl_arr}
 
     def set_attributes(self):
         if self.train_tf:
@@ -259,7 +284,7 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
 
 def asymmetric_mse(y_true, y_pred):
     error = y_true - y_pred
-    sign_penalty = tf.where(tf.less(y_true * y_pred, 0), 1.25, 1.0)
+    sign_penalty = tf.where(tf.less(y_true * y_pred, 0), 1.05, 1.0)
 
     return tf.reduce_mean(sign_penalty * tf.square(error))
 
@@ -297,9 +322,9 @@ class LivePlotLosses(Callback):
         logs = logs or {}
         self.epochs.append(epoch + 1)  # Accumulate epochs
         self.losses.append(logs.get('loss'))
-        self.wl_classification_losses.append(logs.get('wl_classification_loss'))
+        self.wl_classification_losses.append(logs.get('wl_class_loss'))
         self.pnl_output_losses.append(logs.get(pnl_mse))
-        self.wl_classification_accuracies.append(logs.get('wl_classification_accuracy'))
+        self.wl_classification_accuracies.append(logs.get('wl_class_bal_accuracy'))
         self.pnl_output_mses.append(logs.get(pnl_mse))
 
         # Clear previous plots
@@ -334,15 +359,57 @@ class LivePlotLosses(Callback):
     def on_train_end(self, logs=None):
         plt.ioff()  # Turn off interactive mode at the end
         plt.close()
+        pass
 
 
 class StopAtAccuracy(Callback):
-    def __init__(self, accuracy_threshold=.95):
+    def __init__(self, accuracy_threshold=.99):
         super(StopAtAccuracy, self).__init__()
         self.accuracy_threshold = accuracy_threshold
 
     def on_epoch_end(self, epoch, logs=None):
-        wl_accuracy = logs.get('wl_classification_accuracy')
+        wl_accuracy = logs.get('wl_class_bal_accuracy')
         if wl_accuracy is not None and wl_accuracy >= self.accuracy_threshold:
             print(f"\nReached {self.accuracy_threshold*100}% accuracy, stopping training!")
             self.model.stop_training = True
+
+
+def bal_accuracy(y_true, y_pred):
+    # Convert predictions to binary using a threshold of 0.5 (or adjust as needed)
+    y_pred_binary = tf.cast(y_pred > 0.473, tf.float32)
+
+    # Calculate True Positives, True Negatives, False Positives, False Negatives
+    true_positives = K.sum(K.cast(y_true * y_pred_binary, tf.float32))
+    true_negatives = K.sum(K.cast((1 - y_true) * (1 - y_pred_binary), tf.float32))
+    false_positives = K.sum(K.cast((1 - y_true) * y_pred_binary, tf.float32))
+    false_negatives = K.sum(K.cast(y_true * (1 - y_pred_binary), tf.float32))
+
+    # Calculate recall for each class
+    recall_pos = true_positives / (true_positives + false_negatives + K.epsilon())
+    recall_neg = true_negatives / (true_negatives + false_positives + K.epsilon())
+
+    # Compute balanced accuracy
+    balanced_acc = (recall_pos + recall_neg) / 2.0
+    return balanced_acc
+
+
+def specificity(y_true, y_pred):
+    # Convert predictions to binary using a threshold (default is 0.5)
+    y_pred_binary = tf.cast(y_pred > 0.473, tf.float32)
+
+    # Calculate True Negatives and False Positives
+    true_negatives = K.sum(K.cast((1 - y_true) * (1 - y_pred_binary), tf.float32))
+    false_positives = K.sum(K.cast((1 - y_true) * y_pred_binary, tf.float32))
+
+    # Compute specificity (True Negative Rate)
+    specificity_value = true_negatives / (true_negatives + false_positives + K.epsilon())
+    return specificity_value
+
+
+# def wl_combined_loss(y_true, y_pred):
+#     loss_fn_weight = 2/5
+#     recall_weight = 3/10
+#     specificity_weight = 3/10
+#     loss = loss_fn_weight *
+#     return weight_1 * loss_1(y_true, y_pred) + weight_2 * loss_2(y_true, y_pred)
+

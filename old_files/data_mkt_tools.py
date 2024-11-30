@@ -1,9 +1,9 @@
 import numpy as np
 import pandas as pd
-import data_tools.math_tools as mt
+import old_files.math_tools as mt
 import data_tools.general_tools as gt
 import data_tools.data_trade_tools as tdt
-from sklearn.preprocessing import StandardScaler, OneHotEncoder, RobustScaler
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from datetime import datetime, timedelta
 import warnings
 
@@ -23,6 +23,8 @@ class MktDataHandler:
         self.intra_scaler = None
         self.month_onehot_scaler = None
         self.day_onehot_scaler = None
+
+        self.daily_train_test = None
 
         self.x_train_intra = None
         self.x_test_intra = None
@@ -53,14 +55,14 @@ class MktDataHandler:
         if daily:
             data_end = 'daily_20240505_20040401.txt'
             remove_cols = ['Vol.1', 'OI', 'Time', 'AvgExp12', 'AvgExp24', 'Bearish_Double_Candle',
-                           'Bullish_Double_Candle', 'DateTime']
+                           'Bullish_Double_Candle', 'DateTime', 'VolAvg']
             date_or_dt = 'Date'
             print('\nLoading Daily Data')
 
         else:
             data_end = f'{self.data_params.time_frame}_20240505_20040401.txt'
             remove_cols = ['Vol.1', 'OI', 'Time', 'AvgExp12', 'AvgExp24', 'Bearish_Double_Candle',
-                           'Bullish_Double_Candle', 'Date', 'Time', 'Up', 'Down']
+                           'Bullish_Double_Candle', 'Date', 'Time', 'Up', 'Down', 'VolAvg']
             date_or_dt = 'DateTime'
             print('\nLoading Intraday Data')
 
@@ -69,19 +71,17 @@ class MktDataHandler:
             print(f'...{sec}')
             temp_df = pd.read_csv(f'{data_loc}\\{sec}_{data_end}')
 
-            # if (sec == self.data_params.security) and not daily:
-            #     print(temp_df.columns)
-            #     self.security_df = temp_df[['DateTime', 'Close']]
+            if (sec == self.data_params.security) and not daily:
+                self.security_df = temp_df[['Date', 'Time', 'Close']]
+                self.security_df = gt.convert_date_time(self.security_df)
+                self.security_df = self.security_df[['DateTime', 'Close']]
 
-            temp_df['ATR'] = mt.create_atr(temp_df, 8)
-            temp_df['EMA'] = mt.calculate_ema_numba(temp_df, 'Close', 8)
+            temp_df = mt.set_various_data(temp_df)
             temp_df = gt.convert_date_time(temp_df)
             temp_df = temp_df.sort_values(by='DateTime')
 
             cols_remove = [col for col in temp_df.columns if col in remove_cols]
             temp_df.drop(columns=cols_remove, inplace=True)
-
-            temp_df = mt.set_various_data(temp_df)
 
             if not daily:
                 cols = ['DateTime'] + temp_df.columns[:-1].to_list()
@@ -99,8 +99,8 @@ class MktDataHandler:
 
         working_df[date_or_dt] = pd.to_datetime(working_df[date_or_dt])
         working_df = working_df[working_df[date_or_dt] >= pd.to_datetime(self.data_params.start_train_date)]
-        working_df['Month'] = pd.to_datetime(working_df[date_or_dt]).dt.month
-        working_df['Day'] = pd.to_datetime(working_df[date_or_dt]).dt.dayofweek
+        working_df['Month'] = pd.to_datetime(working_df[date_or_dt]).dt.month - 6
+        working_df['Day'] = pd.to_datetime(working_df[date_or_dt]).dt.dayofweek - 2
 
         if daily:
             working_df['Date'] = working_df['Date'].dt.date
@@ -127,20 +127,24 @@ class MktDataHandler:
         df = gt.sort_data_cols(df)
         df = gt.fill_na_inf(df)
 
+        for sec in self.all_secs:
+            df.drop(columns=f'{sec}_Vol', inplace=True)
+
         if daily:
             self.dailydata = df
         else:
             self.intradata = df
 
+    def inf_check(self):
+        self.dailydata = gt.fill_na_inf(self.dailydata)
+        self.intradata = gt.fill_na_inf(self.intradata)
+
     def set_x_train_test_datasets(self):
         print('\nBuilding X-Train and Test Datasets')
         self.x_train_intra = self.intradata[self.intradata['DateTime'].dt.date.isin(self.trade_data.train_dates)]
-        self.x_train_intra = gt.fill_na_inf(self.x_train_intra)
-
         self.x_test_intra = self.intradata[self.intradata['DateTime'].dt.date.isin(self.trade_data.test_dates)]
-        self.x_test_intra = gt.fill_na_inf(self.x_test_intra)
 
-    def scale_x_data(self, load_scalers, friday):
+    def scale_x_data(self, load_scalers, test_date):
         print('\nScaling X Data')
         # self.intra_scaler = RobustScaler(quantile_range=(3, 97))
         self.x_train_intra = gt.arrange_xcols_for_scaling(self.x_train_intra)
@@ -150,25 +154,26 @@ class MktDataHandler:
 
         if load_scalers:
             print('Loading Previous Scalers')
-            last_friday = pd.to_datetime(friday) - timedelta(days=7)
-            last_last_friday = last_friday - timedelta(days=7)
-            x_train_fit_data = self.x_train_intra[(self.x_train_intra['DateTime'] > last_last_friday) &
-                                                  (self.x_train_intra['DateTime'] <= last_friday)]
+            last_test_date = pd.to_datetime(test_date) - timedelta(days=7)
+            last_last_test_date = last_test_date - timedelta(days=7)
+            x_train_fit_data = self.x_train_intra[(self.x_train_intra['DateTime'] > last_last_test_date) &
+                                                  (self.x_train_intra['DateTime'] <= last_test_date)]
             self.intra_scaler.partial_fit(x_train_fit_data.iloc[:, 1:].values)
+            # self.intra_scaler.fit(x_train_fit_data.iloc[:, 1:].values)
 
         else:
             self.intra_scaler = StandardScaler()
             self.intra_scaler.partial_fit(self.x_train_intra.iloc[:, 1:].values)
+            # self.intra_scaler.fit(self.x_train_intra.iloc[:, 1:].values)
 
         self.x_train_intra.iloc[:, 1:] = self.intra_scaler.transform(self.x_train_intra.iloc[:, 1:].values)
         self.x_test_intra.iloc[:, 1:] = self.x_test_intra.iloc[:, 1:].astype('float32')
         self.x_test_intra.iloc[:, 1:] = self.intra_scaler.transform(self.x_test_intra.iloc[:, 1:].values)
 
-        self.dailydata = gt.arrange_xcols_for_scaling(self.dailydata)
-
-        self.dailydata.iloc[:, 1:] = self.dailydata.iloc[:, 1:].astype('float32')
-        self.dailydata.iloc[:, 1:] = self.intra_scaler.transform(
-            self.dailydata.iloc[:, 1:].values)
+        self.daily_train_test = gt.arrange_xcols_for_scaling(self.dailydata)
+        self.daily_train_test.iloc[:, 1:] = self.daily_train_test.iloc[:, 1:].astype('float32')
+        self.daily_train_test.iloc[:, 1:] = self.intra_scaler.transform(
+            self.daily_train_test.iloc[:, 1:].values)
 
     def onehot_month_day(self):
         self.day_onehot_scaler = OneHotEncoder(sparse_output=False)
@@ -195,23 +200,26 @@ class MktDataHandler:
         self.x_test_intra = gt.add_arr_to_df(self.x_test_intra, oh_month_test)
         self.dailydata = gt.add_arr_to_df(self.dailydata, oh_month_daily)
 
-    def scale_y_pnl_data(self, load_scalers, friday):
+    def scale_y_pnl_data(self, load_scalers, test_date):
         print('\nScaling Y-pnl Data')
 
         self.y_train_pnl_df = self.trade_data.y_train_df.iloc[:, :2]
         self.y_train_pnl_df.iloc[:, 1] = self.y_train_pnl_df.iloc[:, 1].astype('float32')
 
         if load_scalers:
-            last_friday = pd.to_datetime(friday) - timedelta(days=7)
-            last_last_friday = last_friday - timedelta(days=7)
-            y_train_train_fit = self.y_train_pnl_df[(self.y_train_pnl_df['DateTime'] > last_last_friday) &
-                                                    (self.y_train_pnl_df['DateTime'] <= last_friday)]
+            last_test_date = pd.to_datetime(test_date) - timedelta(days=7)
+            last_last_test_date = last_test_date - timedelta(days=7)
+            y_train_train_fit = self.y_train_pnl_df[(self.y_train_pnl_df['DateTime'] > last_last_test_date) &
+                                                    (self.y_train_pnl_df['DateTime'] <= last_test_date)]
             self.y_pnl_scaler.partial_fit(y_train_train_fit.iloc[:, 1].values.reshape(-1, 1))
+            # self.y_pnl_scaler.fit(y_train_train_fit.iloc[:, 1].values.reshape(-1, 1))
 
         else:
             self.y_pnl_scaler = StandardScaler()
-            # self.y_pnl_scaler = RobustScaler(quantile_range=(5, 95))
-            self.y_pnl_scaler.fit(self.y_train_pnl_df.iloc[:, 1].values.reshape(-1, 1))
+            self.y_pnl_scaler.partial_fit(self.y_train_pnl_df.iloc[:, 1].values.reshape(-1, 1))
+
+        # self.y_pnl_scaler = RobustScaler(quantile_range=(5, 95))
+        # self.y_pnl_scaler.fit(self.y_train_pnl_df.iloc[:, 1].values.reshape(-1, 1))
 
         pnl_scaled = self.y_pnl_scaler.transform(self.y_train_pnl_df.iloc[:, 1].values.reshape(-1, 1))
         self.y_train_pnl_df.iloc[:, 1] = pnl_scaled.reshape(-1, 1)
@@ -247,7 +255,8 @@ class MktDataHandler:
             try:
                 trade_dt = y_pnl_df.loc[train_ind, 'DateTime']
 
-                x_daily_input = self.dailydata[self.dailydata['Date'] < trade_dt.date()].tail(daily_len).values[:, 1:]
+                x_daily_input = self.daily_train_test[self.daily_train_test['Date'] <
+                                                      trade_dt.date()].tail(daily_len).values[:, 1:]
                 x_daily_input = gt.pad_to_length(x_daily_input, daily_len)
 
                 x_intra_input = x_intraday[(x_intraday['DateTime'] <= trade_dt) &

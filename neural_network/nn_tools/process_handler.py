@@ -2,8 +2,7 @@ import os
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
-import openpyxl
-import neural_network.nn_tools.model_tools as mt
+import pickle
 
 
 class DataParams:
@@ -13,7 +12,8 @@ class DataParams:
         self.security = setup_dict['security']
         self.other_securities = setup_dict['other_securities']
         self.sides = setup_dict['sides']
-        self.time_frame = setup_dict['time_frame']
+        self.time_frame_test = setup_dict['time_frame_test']
+        self.time_frame_train = setup_dict['time_frame_train']
         self.time_len = setup_dict['time_length']
         self.data_loc = setup_dict['data_loc']
         self.strat_dat_loc = setup_dict['strat_dat_loc']
@@ -22,23 +22,26 @@ class DataParams:
         self.final_test_date = pd.to_datetime(setup_dict['final_test_date'], format='%Y-%m-%d')
         self.start_hour = setup_dict['start_hour']
         self.start_minute = setup_dict['start_minute']
-        self.min_pnl_percentile = setup_dict['min_pnl_percentile']
+        self.test_period_days = setup_dict['test_period_days']
         self.years_to_train = setup_dict['years_to_train']
         self.sample_percent = setup_dict['sample_percent']
         self.total_param_sets = setup_dict['total_param_sets']
 
 
 class ProcessHandler:
-    def __init__(self, data_params, lstm_model, save_handler, mkt_data, trade_data):
+    def __init__(self, data_params, lstm_model, save_handler, mkt_data, trade_data, retrain_tf):
         self.data_params = data_params
         self.lstm_model = lstm_model
         self.save_handler = save_handler
         self.mkt_data = mkt_data
         self.trade_data = trade_data
-        self.fridays = self.get_fridays()
+        self.test_dates = self.get_test_dates()
         self.train_modeltf = True
+        self.retraintf = retrain_tf
         self.predict_datatf = True
-        self.previous_traintf = False
+        self.prior_traintf = False
+        self.load_current_model = False
+        self.load_previous_model = False
         self.previous_train_path = None
         self.side = None
 
@@ -46,102 +49,112 @@ class ProcessHandler:
         self.lstm_model = lstm_model
         self.side = side
 
-    def get_fridays(self):
-        """Gets a list of all Friday's to train. This should go in another class (possibly processHandler)"""
+    def get_test_dates(self):
+        """Gets a list of all test_date's to train. This should go in another class (possibly processHandler)"""
         end_date = pd.to_datetime(self.data_params.final_test_date, format='%Y-%m-%d')
         end_date = ensure_friday(end_date)
         start_date = end_date - timedelta(weeks=self.data_params.years_to_train*52)
 
-        fridays = []
+        test_dates = []
         current_date = start_date
         while current_date <= end_date:
-            fridays.append(current_date.strftime('%Y-%m-%d'))
-            current_date += timedelta(weeks=1)
+            test_dates.append(current_date.strftime('%Y-%m-%d'))
+            current_date += timedelta(days=self.data_params.test_period_days)
 
-        return fridays
+        return test_dates
 
     def adj_test_dates(self, adj_test_date):
         if isinstance(adj_test_date, int):
-            self.fridays = self.fridays[1:]
+            self.test_dates = self.test_dates[1:]
         elif isinstance(adj_test_date, pd.Timestamp):
-            self.fridays = [dt for dt in self.fridays if dt >= adj_test_date]
+            self.test_dates = [dt for dt in self.test_dates if dt >= adj_test_date]
 
-    def check_previous_train(self):
-        if os.path.exists(self.save_handler.model_save_path):
-            self.train_modeltf = False
-        else:
+    def decide_model_to_train(self, param, test_date, use_previous_model):
+        current_model_exists = os.path.exists(f'{self.save_handler.model_save_path}\\model.keras')
+        previous_model_exists = os.path.exists(f'{self.save_handler.previous_model_path}\\model.keras')
+        self.prior_traintf = False
+        self.load_current_model = False
+        self.load_previous_model = False
+
+        if current_model_exists:
+            print(f'Retraining Model: {self.save_handler.model_save_path}')
+            self.prior_traintf = True
+            self.load_current_model = True
+            self.previous_train_path = self.save_handler.model_save_path
+
+            if not self.retraintf:
+                print(f'Predicting only: {self.save_handler.previous_model_path}')
+                self.train_modeltf = False
+
+        elif previous_model_exists and use_previous_model:
+            print(f'Training model from previous model: {self.save_handler.previous_model_path}')
+            self.prior_traintf = True
             self.train_modeltf = True
+            self.load_previous_model = True
+            self.previous_train_path = self.save_handler.previous_model_path
 
-        if self.train_modeltf:
-            if os.path.exists(self.save_handler.previous_model_path):
-                print(f'Training model from previous model: {self.save_handler.previous_model_path}')
-                self.previous_traintf = True
-                self.previous_train_path = self.save_handler.previous_model_path
-                self.save_handler.load_prior_friday_model()
-
-            elif os.path.exists(self.save_handler.main_train_path):
-                print(f'Training model from base model: {self.save_handler.main_train_path}')
-                self.previous_traintf = True
-                self.previous_train_path = self.save_handler.main_train_path
-            else:
-                print(self.save_handler.model_folder)
-                print(f'Training new model: \n...{self.save_handler.model_save_path}')
-
-    def decide_train_predict(self, param, friday, i):
-        self.check_previous_train()
-        if len(self.trade_data.working_df) == 0:
-            self.predict_datatf = False
-
-        if self.train_modeltf:
-            self.save_handler.save_scalers()
-            if self.previous_traintf:
-                print(f'Found Previous Week Model...')
-                self.save_handler.load_prior_friday_model()
-            else:
-                print(f'Training New Model...')
-            print(f'Training Model: \n...Param: {param} \n...Side: {self.side} \n...Test Date: {friday}')
-
-            self._train_model(i)
-
-    def load_predict_model(self, param, side, friday):
-        if self.predict_datatf:
-            print(f'Found data to predict. Predicting trained model: {friday}')
-            if not self.train_modeltf:
-                self.save_handler.load_current_friday_model()
         else:
-            print(f'Skipping Model Prediction: \n...Param: {param} \n...Side: {side} \n...Test Date: {friday}'
-                  f'\n***NO TEST TRADES***')
+            print(f'Training New Model...')
+            self.train_modeltf = True
+            self.prior_traintf = False
+        print(f'Training Model: \n...Param: {param} \n...Side: {self.side} \n...Test Date: {test_date}')
 
-    def prep_training_data(self, friday, i, load_scalers):
-        self.trade_data.separate_train_test(friday, i)
-        self.mkt_data.set_x_train_test_datasets()
-        self.mkt_data.scale_x_data(load_scalers, friday)
-        self.mkt_data.scale_y_pnl_data(load_scalers, friday)
-        self.mkt_data.onehot_y_wl_data()
+    def decide_load_prior_model(self):
+        if self.prior_traintf:
+            print(f'Loading Prior Model: {self.previous_train_path}')
+            if self.load_current_model:
+                self.save_handler.load_current_test_date_model()
+            elif self.load_previous_model:
+                self.save_handler.load_prior_test_date_model()
 
-    def _train_model(self, i):
-        self.lstm_model.build_compile_model(asym_mse=True)
-        self.lstm_model.train_model(asym_mse=True, previous_train=self.previous_traintf)
-        self.save_handler.save_model(i)
-
-    def decide_load_scalers(self, i):
+    def decide_load_scalers(self):
         load_scalers = False
-        if i != 0:
+        if self.prior_traintf:
             load_scalers = True
-            self.save_handler.load_scalers()
+            self.save_handler.load_scalers(self.retraintf)
+
+        else:
+            print('Creating New Scalers')
 
         return load_scalers
+
+    def load_predict_model(self, param, side, test_date):
+        if self.predict_datatf:
+            print(f'Found data to predict. Predicting trained model: {test_date}')
+            if not self.train_modeltf:
+                self.save_handler.load_current_test_date_model()
+        else:
+            print(f'Skipping Model Prediction: \n...Param: {param} \n...Side: {side} \n...Test Date: {test_date}'
+                  f'\n***NO TEST TRADES***')
+
+    def set_x_train_test_data(self):
+        self.mkt_data.inf_check()
+        self.mkt_data.set_x_train_test_datasets()
+
+    def prep_training_data(self, test_date, load_scalers, i):
+        self.mkt_data.subset_start_time()
+        self.mkt_data.scale_x_data(load_scalers, test_date, self.train_modeltf, i)
+        self.mkt_data.scale_y_pnl_data(load_scalers, test_date, self.train_modeltf, i)
+        self.mkt_data.onehot_y_wl_data()
+        self.save_handler.save_scalers()
+
+    def ph_train_model(self, i):
+        if not self.prior_traintf:
+            self.lstm_model.build_compile_model()
+        else:
+            print(f'Loaded Previous Model')
+        self.lstm_model.train_model(previous_train=self.prior_traintf)
+        self.save_handler.save_model(i)
 
 
 def ensure_friday(date):
     weekday = date.weekday()
 
     if weekday != 4:
-        days_until_friday = (4 - weekday) % 7
-        date = date + timedelta(days=days_until_friday)
+        days_until_test_date = (4 - weekday) % 7
+        date = date + timedelta(days=days_until_test_date)
 
     return date
-
 
 
 

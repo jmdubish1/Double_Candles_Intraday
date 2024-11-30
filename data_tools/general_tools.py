@@ -23,8 +23,10 @@ def adjust_datetime(datetimes):
 
 
 def convert_date_time(data):
-    data['DateTime'] = pd.to_datetime(data['Date'] + ' ' + data['Time'])
-    data['Date'] = pd.to_datetime(data['Date']).dt.date
+    data['DateTime'] = pd.to_datetime(data['Date'] + ' ' + data['Time'],
+                                      format='%m/%d/%Y %H:%M')
+    # data['Date'] = pd.to_datetime(data['Date']).dt.date
+    data.drop(columns=['Date', 'Time'], inplace=True)
 
     return data
 
@@ -80,33 +82,24 @@ def fill_na_inf(df):
     return df
 
 
-def pad_to_length(arr, target_length):
-    current_length, num_columns = arr.shape
-    padded_columns = []
-    for i in range(num_columns):
-        column = arr[:, i]
-        padding_needed = target_length - current_length
-
-        if padding_needed > 0:
-            padded_column = np.pad(column, (0, padding_needed), 'constant')
-        else:
-            padded_column = column
-
-        padded_columns.append(padded_column)
-
-    padded_array = np.column_stack(padded_columns)
-
-    return padded_array
+def pad_to_length(arr, length, pad_value=0):
+    if arr.shape[0] >= length:
+        return arr[-length:]
+    padding = np.full((length - arr.shape[0], arr.shape[1]), pad_value)
+    return np.vstack((padding, arr))
 
 
 def arrange_xcols_for_scaling(df):
-
     cols = list(df.columns)
-    # cols.insert(-1, cols.pop(cols.index('Day')))
-    # cols.insert(-1, cols.pop(cols.index('Month')))
-    cols.append(cols.pop(cols.index('Day')))
-    cols.append(cols.pop(cols.index('Month')))
-    df = df[cols]
+    get_cols = []
+    for col in cols:
+        if col in ['Year', 'Day', 'Month', 'Hour', 'Minute']:
+            get_cols.append(col)
+
+    for col in get_cols:
+        cols.pop(cols.index(col))
+
+    df = df[cols + get_cols]
 
     return df
 
