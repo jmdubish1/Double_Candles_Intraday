@@ -25,97 +25,100 @@ class ModelOutputdata:
         self.wl_loss = None
         self.wl_nn_binary = None
         self.wl_algo_binary = None
+        self.optimal_threshold = None
+        self.optimized_temperature = None
 
-    def predict_evaluate_model(self, runs, thresholdtf=True, platt_scaling=False, temp_scaling=True):
+    def predict_model(self, runs, thresholdtf=True):
         print(f'Running Model Evaluation...')
         # Evaluate Model
         test_generator = CustomDataGenerator(self.mkt_data, self.lstm_model, self.lstm_model.batch_s, train=False)
-        (test_loss, test_wl_loss, test_pnl_loss, wl_wce, wl_focal_fixed, wl_bal_acc, wl_specificity, wl_class_auc,
-         wl_recall, pnl_output_mse) = self.lstm_model.model.evaluate(test_generator)
+        (test_loss, test_wl_loss, test_pnl_loss,
+         npv_loss, ppv_loss, auc_loss, huber_loss) = self.lstm_model.model.evaluate(test_generator)
 
         self.model_metrics = initial_model_metrics()
         self.model_metrics['test_loss'] = test_loss
         self.model_metrics['wl_class_loss'] = test_wl_loss
-        self.model_metrics['wl_class_specificity'] = wl_specificity
-        self.model_metrics['pnl_output_loss'] = test_pnl_loss
-        self.model_metrics['pnl_output_mse'] = pnl_output_mse
-        self.model_metrics['wl_class_auc'] = wl_class_auc
+        self.model_metrics['test_pnl_loss'] = test_pnl_loss
+        self.model_metrics['npv_loss'] = npv_loss
+        self.model_metrics['ppv_loss'] = ppv_loss
+        self.model_metrics['auc_loss'] = auc_loss
+        self.model_metrics['huber_loss'] = huber_loss
 
         # Predict Model
         print(f'Running {runs} Predictions...')
 
         for i in range(runs):
-            if i % 100 == 0:
+            if i % 5 == 0:
+                print(i)
+
+            test_generator = CustomDataGenerator(self.mkt_data, self.lstm_model, self.lstm_model.batch_s, train=False)
+            x_day, x_intra, _, _ = prefab_batches(test_generator)
+            x_val = [x_day, x_intra]
+
+            wl_predictions, pnl_predictions = self.lstm_model.model.predict(x_val,
+                                                               batch_size=self.lstm_model.batch_s,
+                                                               verbose=0)
+            wl_predictions = wl_predictions / wl_predictions.sum(axis=1, keepdims=True)
+
+            logit_model = Model(inputs=self.lstm_model.model.input,
+                                outputs=self.lstm_model.model.get_layer('logits').output)
+
+            # wl_predictions = self.predict_with_logit_model(logit_model, x_val, self.lstm_model.temperature)
+
+            # pnl_predictions = self.mkt_data.y_pnl_scaler.inverse_transform(pnl_predictions)
+
+            self.model_metrics['wl_predictions'].append(wl_predictions)
+            self.model_metrics['pnl_predictions'].append(pnl_predictions)
+
+        if thresholdtf:
+            y_pred = np.array(self.model_metrics['wl_predictions'])
+            self.get_optimal_threshold(y_pred)
+
+    def predict_optimize_model(self, runs, thresholdtf=True, temp_scaling=True):
+        print(f'Running Model Evaluation and Optimization...')
+        # Evaluate Model
+        test_generator = CustomDataGenerator(self.mkt_data, self.lstm_model, self.lstm_model.batch_s, train=False)
+        (test_loss, test_wl_loss, test_pnl_loss,
+         npv_loss, ppv_loss, auc_loss, huber_loss) = self.lstm_model.model.evaluate(test_generator)
+
+        self.model_metrics = initial_model_metrics()
+        self.model_metrics['test_loss'] = test_loss
+        self.model_metrics['wl_class_loss'] = test_wl_loss
+        self.model_metrics['test_pnl_loss'] = test_pnl_loss
+        self.model_metrics['npv_loss'] = npv_loss
+        self.model_metrics['ppv_loss'] = ppv_loss
+        self.model_metrics['auc_loss'] = auc_loss
+        self.model_metrics['huber_loss'] = huber_loss
+
+        # Predict Model
+        print(f'Running {runs} Predictions...')
+
+        for i in range(runs):
+            if i % 5 == 0:
                 print(i)
 
             test_generator = CustomDataGenerator(self.mkt_data, self.lstm_model, self.lstm_model.batch_s, train=False)
 
-            if platt_scaling:
-                output_layer = self.lstm_model.model.layers[-1]
-                logit_model = Model(inputs=self.lstm_model.model.input, outputs=output_layer.input)
-                val_logits = []
-
-                for x_batch, y_batch in test_generator:
-                    batch_logits = logit_model.predict(x_batch, verbose=0)
-                    val_logits.extend(batch_logits)
-
-                val_logits = np.array(val_logits)
-                val_labels = np.array(self.mkt_data.y_test_wl_df['Win'])
-
-                # print("Shape of x_batch:", val_logits.shape)
-                # print("Shape of y_batch:", val_labels.shape)
-
-
-                # Generate predictions using the calibrated model
-                logits = logit_model.predict(test_generator, batch_size=self.lstm_model.batch_s, verbose=0)
-                platt_scaler = LogisticRegression()
-                platt_scaler.fit(logits, val_labels)
-
-                wl_predictions = platt_scaler.predict_proba(logits)
-
+            if temp_scaling:
                 _, pnl_predictions = self.lstm_model.model.predict(test_generator,
                                                                    batch_size=self.lstm_model.batch_s,
                                                                    verbose=0)
 
-            elif temp_scaling:
-                X_day = []
-                X_intra = []
-                Y_wl = []
-                Y_pnl = []
+                x_day, x_intra, y_wl, _ = prefab_batches(test_generator)
+                x_val = [x_day, x_intra]
 
-                for x_batch, y_batch in test_generator:
-                    x_day_arr, x_intra_arr = x_batch
-                    X_day.append(x_day_arr)
-                    X_intra.append(x_intra_arr)
-                    Y_wl.append(y_batch['wl_class'])
-                    Y_pnl.append(y_batch['pnl'])
+                logit_model, self.optimized_temperature = (
+                    optimize_temperature_scaling(self.lstm_model.model, x_val, y_wl))
+                wl_predictions = self.predict_with_logit_model(logit_model, x_val, self.optimized_temperature)
 
-                # Combine all batches into single arrays
-                X_day = np.concatenate(X_day, axis=0)
-                X_intra = np.concatenate(X_intra, axis=0)
-                Y_wl = np.concatenate(Y_wl, axis=0)
-                Y_pnl = np.concatenate(Y_pnl, axis=0)
-
-                x_val = [X_day, X_intra]
-
-                logit_model, optimized_temperature = optimize_temperature_scaling(self.lstm_model.model, x_val, Y_wl)
-                logits = logit_model.predict(test_generator)
-                scaled_logits = logits / optimized_temperature
-                wl_predictions = tf.nn.softmax(scaled_logits).numpy()
-
-                _, pnl_predictions = self.lstm_model.model.predict(test_generator,
-                                                                   batch_size=self.lstm_model.batch_s,
-                                                                   verbose=0)
-
-                print(optimized_temperature)
-                breakpoint()
+                print(f'Optimized Temperature: {self.optimized_temperature}')
+                # breakpoint()
 
             else:
                 wl_predictions, pnl_predictions = self.lstm_model.model.predict(test_generator,
                                                                                 batch_size=self.lstm_model.batch_s,
                                                                                 verbose=0)
-            # print(wl_predictions)
-            # wl_predictions = softmax_pred(wl_predictions)
+
             pnl_predictions = self.mkt_data.y_pnl_scaler.inverse_transform(pnl_predictions)
 
             self.model_metrics['wl_predictions'].append(wl_predictions)
@@ -124,6 +127,13 @@ class ModelOutputdata:
         if thresholdtf:
             y_pred = np.array(self.model_metrics['wl_predictions'])
             self.get_optimal_threshold(y_pred)
+
+    def predict_with_logit_model(self, logit_model, x_val, optimized_temperature):
+        logits = logit_model.predict(x_val)
+        scaled_logits = logits / optimized_temperature
+        wl_predictions = tf.nn.softmax(scaled_logits).numpy()
+
+        return wl_predictions
 
     def get_optimal_threshold(self, y_pred):
         optimal_thresholds = []
@@ -141,12 +151,14 @@ class ModelOutputdata:
             optimal_threshold = thresholds[optimal_idx]
             optimal_thresholds.append(optimal_threshold)
 
-        optimal_threshold = np.mean(optimal_thresholds)
+        self.optimal_threshold = np.mean(optimal_thresholds)
         optimal_thr_std = np.std(optimal_thresholds)
-        self.model_metrics['opt_threshold'] = optimal_threshold
-        print(f'Current Threshold: {self.lstm_model.opt_threshold}')
-        print(f'Period Dates: {self.trade_data.start_period_test_date} - {self.trade_data.curr_test_date}\n'
-              f'Optimal Threshold: {optimal_threshold}\n'
+        self.model_metrics['opt_threshold'] = self.optimal_threshold
+
+        print(f'Period Dates: {self.trade_data.start_period_test_date} - {self.trade_data.curr_test_date}')
+        print(f'Current Temperature: {self.lstm_model.temperature}\n'
+              f'Current Threshold: {self.lstm_model.opt_threshold}\n'
+              f'Optimal Threshold: {self.optimal_threshold}\n'
               f'Op_thres_std: {optimal_thr_std}')
 
     def opt_thres_stats(self, optimal_thresholds, num_batches=100, batch_size=10):
@@ -201,14 +213,6 @@ class ModelOutputdata:
             if key not in ['wl_predictions', 'pnl_predictions']:
                 print(f'{key}: {val: 4f}')
 
-        check = pd.DataFrame()
-        check['wl_actual'] = np.array(self.mkt_data.y_test_wl_df['Win'])
-        check['wl_pred'] = np.array(self.model_metrics['wl_predictions']).reshape(1, -1).flatten()
-        check['PnL'] = np.array(self.mkt_data.y_test_pnl_df['PnL'])
-        check['PnL_pred'] = np.array(self.model_metrics['pnl_predictions']).flatten()
-        check.index = self.mkt_data.y_test_pnl_df['DateTime']
-        check.to_excel('check.xlsx')
-
     def process_prediction_data(self):
         model_metrics = self.model_metrics.copy()
         key_remove = ['wl_predictions', 'pnl_predictions']
@@ -236,14 +240,13 @@ class ModelOutputdata:
 
     def prep_predicted_data(self, wl_predictions, pnl_predictions):
         self.adjust_algo_pnl_for_close()
-        # wl_predictions = softmax_pred(wl_predictions)
-        # wl_predictions = self.mkt_data.y_wl_onehot_scaler.inverse_transform(wl_predictions)
+        wl_predictions = (wl_predictions >= .5).astype(int)
+        # wl_predictions = (wl_predictions >= self.lstm_model.opt_threshold).astype(int)
         #
-        # wl_predictions = (wl_predictions[:, 1] >= self.lstm_model.lstm_dict['recall_threshold']).astype(int)
-        print('Predictions **')
-        print(wl_predictions)
+        # check = np.column_stack((wl_predictions, check))
+        # print(check)
+        # wl_predictions = check[:, 1]
 
-        wl_predictions = (wl_predictions >= self.lstm_model.opt_threshold).astype(int)
         self.wl_nn_binary = np.array(wl_predictions).reshape(1, -1)
         self.wl_algo_binary = np.array([1 if i == 1 else 0 for i in self.mkt_data.y_test_wl_df['Win']])
 
@@ -471,25 +474,55 @@ def softmax_pred(arr):
     return arr / arr.sum(axis=1, keepdims=True)
 
 
-def optimize_temperature_scaling(model, X_val, y_val):
+def optimize_temperature_scaling(model, x_val, y_val, act_type='sigmoid'):
     # Extract logits
-    logit_model = Model(inputs=model.input,
-                        outputs=model.get_layer('temp_scaling_wl').input)
-    logits = logit_model.predict(X_val)
+    logit_model = Model(inputs=model.input, outputs=model.get_layer('logits').output)
+    logits = logit_model.predict(x_val)
 
-    # Define optimizer for temperature
-    temp_layer = model.get_layer('temp_scaling_wl')
+    # Ensure y_val is one-hot encoded if logits have multiple classes
+    if len(y_val.shape) == 1 or y_val.shape[-1] != logits.shape[-1]:
+        y_val = tf.one_hot(tf.cast(y_val, tf.int32), depth=logits.shape[-1])
+
+    # Initialize temperature as a trainable variable
+    temperature = tf.Variable(initial_value=1.0, trainable=True, dtype=tf.float32)
+
+    # Define the optimizer
     optimizer = tf.keras.optimizers.Adam(learning_rate=0.01)
 
-    # Loss function (negative log likelihood)
-    def loss_fn():
-        y_val_indices = tf.argmax(y_val, axis=-1)
-        scaled_logits = logits / temp_layer.temperature
-        return tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y_val_indices,
-                                                                             logits=scaled_logits))
+    # Define the loss function (negative log-likelihood)
+    def loss_fn(act_type):
+        scaled_logits = logits / temperature
+        loss = None
+        if act_type == 'softmax':
+            loss = tf.nn.softmax_cross_entropy_with_logits(labels=y_val, logits=scaled_logits)
+        elif act_type == 'sigmoid':
+            loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.argmax(y_val, axis=-1), logits=scaled_logits)
+        return tf.reduce_mean(loss)
 
-    # Optimize temperature
+    # Optimize the temperature
     for _ in range(100):  # Number of steps
-        optimizer.minimize(loss_fn, [temp_layer.temperature])
+        optimizer.minimize(loss_fn, [temperature])
 
-    return logit_model, temp_layer.temperature.numpy()
+    return logit_model, temperature.numpy()
+
+
+def prefab_batches(test_generator):
+    X_day = []
+    X_intra = []
+    Y_wl = []
+    Y_pnl = []
+
+    for x_batch, y_batch in test_generator:
+        x_day_arr, x_intra_arr = x_batch
+        X_day.append(x_day_arr)
+        X_intra.append(x_intra_arr)
+        Y_wl.append(y_batch['wl_class'])
+        Y_pnl.append(y_batch['pnl'])
+
+    # Combine all batches into single arrays
+    X_day = np.concatenate(X_day, axis=0)
+    X_intra = np.concatenate(X_intra, axis=0)
+    Y_wl = np.concatenate(Y_wl, axis=0)
+    Y_pnl = np.concatenate(Y_pnl, axis=0)
+
+    return X_day, X_intra, Y_wl, Y_pnl

@@ -192,7 +192,7 @@ class LstmOptModel:
         if previous_train:
             epochs = 50
             acc_threshold = .99
-            self.model.optimizer.learning_rate.assign(self.lstm_dict['adam_optimizer'] / 5)
+            self.model.optimizer.learning_rate.assign(self.lstm_dict['adam_optimizer'] / 2)
         else:
             epochs = self.epochs
             acc_threshold = self.max_acc

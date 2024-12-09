@@ -74,7 +74,7 @@ def add_high_low_diff(df, other_sec, sec_name):
     return df
 
 
-def scale_open_close(df):
+def scale_open_close(df, ffd_df):
     print('...scaling open, close')
     for col in df.columns.to_list():
         if any(word in col for word in ['Open', 'High', 'Close', 'Low']):

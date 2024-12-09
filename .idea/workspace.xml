@@ -4,25 +4,23 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="0f8d2bdc-b7dc-4eca-bfb4-9361faf947dc" name="Changes" comment="Improvements when dealing with scalers and saved models">
-      <change afterPath="$PROJECT_DIR$/analysis_tools/performance_metrics_tools.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/data_tools/data_mkt_tools2.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/data_tools/math_tools2.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/neural_network/nn_tools/loss_functions.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/old_files/garbage/scratch.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/old_files/model_tools.py" afterDir="false" />
+    <list default="true" id="0f8d2bdc-b7dc-4eca-bfb4-9361faf947dc" name="Changes" comment="Fuck">
+      <change afterPath="$PROJECT_DIR$/analysis_tools/fractional_difference_optimization.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/data_tools/math_tools3.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/old_files/garbage/testing_grounds/fractional_difference_opt_test.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/analysis_tools/param_chooser.py" beforeDir="false" afterPath="$PROJECT_DIR$/analysis_tools/param_chooser.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/data_tools/data_mkt_tools.py" beforeDir="false" afterPath="$PROJECT_DIR$/old_files/data_mkt_tools.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/data_tools/data_mkt_tools2.py" beforeDir="false" afterPath="$PROJECT_DIR$/data_tools/data_mkt_tools2.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/data_tools/data_predictions_tools.py" beforeDir="false" afterPath="$PROJECT_DIR$/data_tools/data_predictions_tools.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/data_tools/data_trade_tools.py" beforeDir="false" afterPath="$PROJECT_DIR$/data_tools/data_trade_tools.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/data_tools/general_tools.py" beforeDir="false" afterPath="$PROJECT_DIR$/data_tools/general_tools.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/data_tools/math_tools.py" beforeDir="false" afterPath="$PROJECT_DIR$/old_files/math_tools.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/data_tools/math_tools2.py" beforeDir="false" afterPath="$PROJECT_DIR$/data_tools/math_tools2.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/neural_network/nn_run/lstm_main_15m.py" beforeDir="false" afterPath="$PROJECT_DIR$/neural_network/nn_run/lstm_main_15m.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/neural_network/nn_tools/model_tools.py" beforeDir="false" afterPath="$PROJECT_DIR$/neural_network/nn_tools/model_tools2.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/neural_network/nn_tools/loss_functions.py" beforeDir="false" afterPath="$PROJECT_DIR$/neural_network/nn_tools/loss_functions.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/neural_network/nn_tools/model_tools2.py" beforeDir="false" afterPath="$PROJECT_DIR$/neural_network/nn_tools/model_tools2.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/neural_network/nn_tools/process_handler.py" beforeDir="false" afterPath="$PROJECT_DIR$/neural_network/nn_tools/process_handler.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/neural_network/nn_tools/save_handler.py" beforeDir="false" afterPath="$PROJECT_DIR$/neural_network/nn_tools/save_handler.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/old_files/lstm_data_tools_old.py" beforeDir="false" afterPath="$PROJECT_DIR$/old_files/lstm_data_tools_old.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/old_files/garbage/scratch.py" beforeDir="false" afterPath="$PROJECT_DIR$/analysis_tools/chart_analysis.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/old_files/math_tools.py" beforeDir="false" afterPath="$PROJECT_DIR$/old_files/math_tools.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/old_files/model_tools.py" beforeDir="false" afterPath="$PROJECT_DIR$/old_files/model_tools.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -62,14 +60,20 @@
   </component>
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
+    "Python.chart_analysis (1).executor": "Run",
+    "Python.data_mkt_tools2.executor": "Run",
     "Python.data_predictions_tools.executor": "Run",
     "Python.data_trade_tools.executor": "Run",
     "Python.dbl_trade_template.executor": "Run",
     "Python.feather_data.executor": "Run",
+    "Python.fractional_difference_opt_test.executor": "Run",
+    "Python.fractional_difference_optimization.executor": "Run",
+    "Python.fractional_differentiation.executor": "Run",
     "Python.general_tools.executor": "Run",
     "Python.lstm_data_tools.executor": "Run",
     "Python.lstm_main.executor": "Run",
     "Python.lstm_main_15m (1).executor": "Run",
+    "Python.lstm_main_15m.executor": "Run",
     "Python.lstm_main_2.executor": "Run",
     "Python.math_tools2.executor": "Run",
     "Python.model_tools2.executor": "Run",
@@ -85,29 +89,95 @@
     "Python.scratch4.executor": "Run",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "git-widget-placeholder": "master",
-    "last_opened_file_path": "C:/Users/jmdub/PycharmProjects/Double_Candles_4_0/old_files/garbage",
+    "last_opened_file_path": "C:/Users/jmdub/PycharmProjects/Double_Candles_4_0/data_tools",
     "run.code.analysis.last.selected.profile": "pProject Default",
-    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable"
+    "settings.editor.selected.configurable": "editor.preferences.appearance"
   }
 }]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
-      <recent name="C:\Users\jmdub\PycharmProjects\Double_Candles_4_0\old_files\garbage" />
       <recent name="C:\Users\jmdub\PycharmProjects\Double_Candles_4_0\data_tools" />
+      <recent name="C:\Users\jmdub\PycharmProjects\Double_Candles_4_0\analysis_tools" />
+      <recent name="C:\Users\jmdub\PycharmProjects\Double_Candles_4_0\old_files\garbage" />
       <recent name="C:\Users\jmdub\PycharmProjects\Double_Candles_4_0\neural_network\nn_run" />
       <recent name="C:\Users\jmdub\PycharmProjects\Double_Candles_4_0\neural_network\nn_tools" />
-      <recent name="C:\Users\jmdub\PycharmProjects\Double_Candles_3\dblc_run_scripts" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="C:\Users\jmdub\PycharmProjects\Double_Candles_4_0\old_files\garbage\testing_grounds" />
+      <recent name="C:\Users\jmdub\PycharmProjects\Double_Candles_4_0\analysis_tools" />
       <recent name="C:\Users\jmdub\PycharmProjects\Double_Candles_4_0\old_files" />
       <recent name="C:\Users\jmdub\PycharmProjects\Double_Candles_4_0\old_files\garbage" />
       <recent name="C:\Users\jmdub\PycharmProjects\Double_Candles_4_0\neural_network\nn_tools" />
-      <recent name="C:\Users\jmdub\PycharmProjects\Double_Candles_4_0\data_tools" />
-      <recent name="C:\Users\jmdub\PycharmProjects\Double_Candles_4_0\gen_data_tools" />
     </key>
   </component>
-  <component name="RunManager" selected="Python.lstm_main_15m (1)">
-    <configuration name="lstm_main_15m (1)" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+  <component name="RunManager" selected="Python.lstm_main_15m">
+    <configuration name="data_mkt_tools2" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="Double_Candles_3" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/data_tools" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/data_tools/data_mkt_tools2.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="fractional_difference_opt_test" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="Double_Candles_3" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/analysis_tools" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="SCRIPT_NAME" value="C:\Users\jmdub\PycharmProjects\Double_Candles_4_0\old_files\garbage\testing_grounds\fractional_difference_opt_test.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="fractional_difference_optimization" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="Double_Candles_3" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/analysis_tools" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/analysis_tools/fractional_difference_optimization.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="lstm_main_15m" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="Double_Candles_3" />
       <option name="ENV_FILES" value="" />
       <option name="INTERPRETER_OPTIONS" value="" />
@@ -121,72 +191,6 @@
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
       <option name="SCRIPT_NAME" value="$PROJECT_DIR$/neural_network/nn_run/lstm_main_15m.py" />
-      <option name="PARAMETERS" value="" />
-      <option name="SHOW_COMMAND_LINE" value="false" />
-      <option name="EMULATE_TERMINAL" value="false" />
-      <option name="MODULE_MODE" value="false" />
-      <option name="REDIRECT_INPUT" value="false" />
-      <option name="INPUT_FILE" value="" />
-      <method v="2" />
-    </configuration>
-    <configuration name="param_chooser" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
-      <module name="Double_Candles_3" />
-      <option name="ENV_FILES" value="" />
-      <option name="INTERPRETER_OPTIONS" value="" />
-      <option name="PARENT_ENVS" value="true" />
-      <envs>
-        <env name="PYTHONUNBUFFERED" value="1" />
-      </envs>
-      <option name="SDK_HOME" value="" />
-      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/analysis_tools" />
-      <option name="IS_MODULE_SDK" value="true" />
-      <option name="ADD_CONTENT_ROOTS" value="true" />
-      <option name="ADD_SOURCE_ROOTS" value="true" />
-      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/analysis_tools/param_chooser.py" />
-      <option name="PARAMETERS" value="" />
-      <option name="SHOW_COMMAND_LINE" value="false" />
-      <option name="EMULATE_TERMINAL" value="false" />
-      <option name="MODULE_MODE" value="false" />
-      <option name="REDIRECT_INPUT" value="false" />
-      <option name="INPUT_FILE" value="" />
-      <method v="2" />
-    </configuration>
-    <configuration name="performance_metrics_tools (1)" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
-      <module name="Double_Candles_3" />
-      <option name="ENV_FILES" value="" />
-      <option name="INTERPRETER_OPTIONS" value="" />
-      <option name="PARENT_ENVS" value="true" />
-      <envs>
-        <env name="PYTHONUNBUFFERED" value="1" />
-      </envs>
-      <option name="SDK_HOME" value="" />
-      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/analysis_tools" />
-      <option name="IS_MODULE_SDK" value="true" />
-      <option name="ADD_CONTENT_ROOTS" value="true" />
-      <option name="ADD_SOURCE_ROOTS" value="true" />
-      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/analysis_tools/performance_metrics_tools.py" />
-      <option name="PARAMETERS" value="" />
-      <option name="SHOW_COMMAND_LINE" value="false" />
-      <option name="EMULATE_TERMINAL" value="false" />
-      <option name="MODULE_MODE" value="false" />
-      <option name="REDIRECT_INPUT" value="false" />
-      <option name="INPUT_FILE" value="" />
-      <method v="2" />
-    </configuration>
-    <configuration name="scratch (1)" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
-      <module name="Double_Candles_3" />
-      <option name="ENV_FILES" value="" />
-      <option name="INTERPRETER_OPTIONS" value="" />
-      <option name="PARENT_ENVS" value="true" />
-      <envs>
-        <env name="PYTHONUNBUFFERED" value="1" />
-      </envs>
-      <option name="SDK_HOME" value="" />
-      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/old_files/garbage" />
-      <option name="IS_MODULE_SDK" value="true" />
-      <option name="ADD_CONTENT_ROOTS" value="true" />
-      <option name="ADD_SOURCE_ROOTS" value="true" />
-      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/old_files/garbage/scratch.py" />
       <option name="PARAMETERS" value="" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />
@@ -219,11 +223,11 @@
     </configuration>
     <recent_temporary>
       <list>
-        <item itemvalue="Python.lstm_main_15m (1)" />
+        <item itemvalue="Python.lstm_main_15m" />
+        <item itemvalue="Python.data_mkt_tools2" />
+        <item itemvalue="Python.fractional_difference_optimization" />
         <item itemvalue="Python.scratch4" />
-        <item itemvalue="Python.scratch (1)" />
-        <item itemvalue="Python.param_chooser" />
-        <item itemvalue="Python.performance_metrics_tools (1)" />
+        <item itemvalue="Python.fractional_difference_opt_test" />
       </list>
     </recent_temporary>
   </component>
@@ -307,7 +311,15 @@
       <option name="project" value="LOCAL" />
       <updated>1731043196401</updated>
     </task>
-    <option name="localTasksCounter" value="9" />
+    <task id="LOCAL-00009" summary="Fuck">
+      <option name="closed" value="true" />
+      <created>1732932776426</created>
+      <option name="number" value="00009" />
+      <option name="presentableId" value="LOCAL-00009" />
+      <option name="project" value="LOCAL" />
+      <updated>1732932776426</updated>
+    </task>
+    <option name="localTasksCounter" value="10" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -330,6 +342,7 @@
     <MESSAGE value="Improvement in model flow. Now saves model and passes models that have been trained." />
     <MESSAGE value="Improvements in model flow" />
     <MESSAGE value="Improvements when dealing with scalers and saved models" />
-    <option name="LAST_COMMIT_MESSAGE" value="Improvements when dealing with scalers and saved models" />
+    <MESSAGE value="Fuck" />
+    <option name="LAST_COMMIT_MESSAGE" value="Fuck" />
   </component>
 </project>

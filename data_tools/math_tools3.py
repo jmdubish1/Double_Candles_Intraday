@@ -21,9 +21,13 @@ def create_atr(data, sec, n=8):
     return atr
 
 
-def set_various_data(df, sec, num):
+def set_pre_ffd_data(df, sec, num):
     df[f'{sec}_ATR_{num}'] = (
             create_atr(df, sec, num)/df[f'{sec}_Close']*100)
+    df = set_ema_data(df, sec, num)
+
+
+def set_ema_data(df, sec, num):
     df[f'{sec}_EMA_{num}'] = calculate_ema_numba(df, f'{sec}_Close', num)
     df[f'{sec}_EMA_Close_{num}'] = (df[f'{sec}_Close'] - df[f'{sec}_EMA_{num}']) / df[f'{sec}_Close']*100
     df[f'{sec}_EMA_{num}'] = standardize_ema(df[f'{sec}_EMA_{num}'], num)

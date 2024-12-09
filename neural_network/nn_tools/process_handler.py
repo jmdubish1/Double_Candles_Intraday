@@ -143,8 +143,44 @@ class ProcessHandler:
             self.lstm_model.build_compile_model()
         else:
             print(f'Loaded Previous Model')
-        self.lstm_model.train_model(previous_train=self.prior_traintf)
+        self.lstm_model.train_model(i, previous_train=self.prior_traintf)
         self.save_handler.save_model(i)
+
+    def modify_op_threshold_temp(self, i, mod_thres=True):
+        if i == 0:
+            self.lstm_model.opt_threshold = self.lstm_model.lstm_dict['opt_threshold'][self.side]
+            self.lstm_model.temperature = self.lstm_model.lstm_dict['temperature'][self.side]
+        else:
+            opt_df = pd.read_excel(f'{self.save_handler.param_folder}\\best_thresholds.xlsx')
+
+            self.lstm_model.temperature = \
+                (opt_df.loc[(opt_df['side'] == self.side) &
+                            (opt_df['paramset_id'] == self.lstm_model.param), 'opt_temp'].values)[0]
+
+            if mod_thres:
+                self.lstm_model.opt_threshold = \
+                    (opt_df.loc[(opt_df['side'] == self.side) &
+                                (opt_df['paramset_id'] == self.lstm_model.param), 'opt_threshold'].values)[0]
+            else:
+                self.lstm_model.opt_threshold = self.lstm_model.lstm_dict['opt_threshold'][self.side]
+
+            # self.lstm_model.opt_threshold = min(round(opt_thres, 3), .575)
+            # self.lstm_model.opt_threshold = self.lstm_model.lstm_dict['opt_threshold'][self.side]
+            # self.lstm_model.temperature = min(round(opt_temp, 3), 2.0)
+
+    def check_op_thres_temp_params(self):
+        temp_predict = False
+        opt_file = f'{self.save_handler.param_folder}\\best_thresholds.xlsx'
+        if os.path.exists(opt_file):
+            opt_df = pd.read_excel(f'{self.save_handler.param_folder}\\best_thresholds.xlsx')
+            opt_thres = opt_df.loc[(opt_df['side'] == self.side) &
+                                   (opt_df['paramset_id'] == self.lstm_model.param), 'opt_threshold']
+            if opt_thres.empty:
+                temp_predict = True
+        else:
+            temp_predict = True
+
+        return temp_predict
 
 
 def ensure_friday(date):

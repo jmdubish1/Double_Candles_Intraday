@@ -25,15 +25,15 @@ setup_dict = {
     'strategy': 'Double_Candle',
     'model_type': 'LSTM',
     'security': 'NQ',
-    'other_securities': ['RTY', 'ES', 'YM'], #, 'GC', 'CL'],
-    'sides': ['Bull', 'Bear'],
+    'other_securities': ['RTY', 'YM'], #'RTY', 'ES', 'YM', 'GC', 'CL'],
+    'sides': ['Bull'],
     'time_frame_test': '15min',
     'time_frame_train': '15min',
     'time_length': '20years',
     'data_loc': r'C:\Users\jmdub\Documents\Trading\Futures\Strategy Info\data',
     'strat_dat_loc': r'C:\Users\jmdub\Documents\Trading\Futures\Strategy Info\Double Candles',
     'trade_dat_loc': r'C:\Users\jmdub\Documents\Trading\Futures\Strategy Info\Double_Candles\ATR',
-    'start_train_date': '2013-04-01',
+    'start_train_date': '2010-04-01',
     'final_test_date': '2024-04-01',
     'start_hour': 6,
     'start_minute': 30,
@@ -44,37 +44,37 @@ setup_dict = {
 }
 
 lstm_model_dict = {
-    'epochs': {'Bull': 80,
-               'Bear': 80},
-    'batch_size': 8,
-    'max_accuracy': .20,
-    'lstm_i1_nodes': 160,
-    'lstm_i2_nodes': 96,
-    'dense_m1_nodes': 64,
-    'dense_wl1_nodes': 32,
-    'dense_pl1_nodes': 32,
-    'adam_optimizer': .0001,
-    'prediction_runs': 5,
-    'opt_threshold': {'Bull': .28,
-                      'Bear': .34},
-    'period_lookback': 24,
+    'epochs': {'Bull': 150,
+               'Bear': 150},
+    'batch_size': 32,
+    'max_accuracy': .96,
+    'lstm_i1_nodes': 48,
+    'lstm_i2_nodes': 32,
+    'dense_m1_nodes': 32,
+    'dense_wl1_nodes': 12,
+    'dense_pl1_nodes': 12,
+    'adam_optimizer': .00005,
+    'prediction_runs': 1,
+    'opt_threshold': {'Bull': .40,
+                      'Bear': .40},
+    'period_lookback': 12,
     'plot_live': False,
-    'chosen_params': {'Bull': [],
-                      'Bear': []}
+    'chosen_params': {'Bull': [104, 108, 12, 120, 14, 188, 234, 24, 252, 44, 76],
+                      'Bear': [100, 118, 124, 160, 26, 32, 34, 40, 74]},
+    'temperature': {'Bull': 1.0,
+                    'Bear': 1.0}
 }
 
 # 'chosen_params': {'Bull': [44, 45, 76, 87, 89, 108, 120, 129, 157, 169, 171, 213, 104, 188, 252, 234],
 #                   'Bear': [165, 157, 160, 74, 121, 118, 166, 250, 124, 226, 100, 220]}
 
 
-predict_tf = False
-retrain_tf = False
-use_previous_period_model = False
-pnl_output = False
-train_bad_paramsets = True
-
-
 def main():
+    predict_tf = True
+    retrain_tf = False
+    use_previous_period_model = True
+    train_bad_paramsets = True
+
     data_params = DataParams(setup_dict)
     mkt_data = MktDataHandler(data_params)
     mkt_data.intra_len = lstm_model_dict['period_lookback']
@@ -88,19 +88,10 @@ def main():
         trade_data.prep_trade_data()
         mkt_data.set_trade_data(trade_data)
 
-        good_params = np.array(
-            param_chooser.best_params_df.loc[param_chooser.best_params_df['side'] == side, 'paramset_id'])
-        other_params = np.array(
-            param_chooser.other_params_df.loc[param_chooser.other_params_df['side'] == side, 'paramset_id'])
+        valid_params = param_chooser.get_valid_params(side, lstm_model_dict, train_bad_paramsets)
+        valid_params = np.concatenate((valid_params, lstm_model_dict['chosen_params'][side]))
+        valid_params = valid_params[::-1]
 
-        if train_bad_paramsets:
-            valid_params = np.concatenate((other_params, good_params))
-        else:
-            valid_params = np.concatenate((good_params, lstm_model_dict['chosen_params'][side]))
-
-        valid_params = sorted(np.unique(valid_params).astype(int))
-        param_chooser.set_lstm_nodes(lstm_model_dict)
-        param_chooser.save_all_params(valid_params, side)
         print(f'Training {len(valid_params)} Valid Params: \n'
               f'{valid_params}')
         for param in valid_params:
@@ -127,19 +118,28 @@ def main():
                 process_handler.set_x_train_test_data()
                 process_handler.prep_training_data(test_date, load_scalers, i)
                 process_handler.decide_load_prior_model()
+                process_handler.modify_op_threshold_temp(i, mod_thres=True)
 
                 if process_handler.train_modeltf:
                     param_chooser.adj_lstm_training_nodes(side, param)
                     process_handler.ph_train_model(i)
 
-                if predict_tf and len(trade_data.y_test_df) > 0:
-                    model_output_data.predict_evaluate_model(lstm_model_dict['prediction_runs'])
+                # temp_predict = process_handler.check_op_thres_temp_params()
+                temp_predict = False
+                if (predict_tf and len(trade_data.y_test_df) > 0) or temp_predict:
+                    if i == 0:
+                        model_output_data.predict_optimize_model(lstm_model_dict['prediction_runs'])
+                    else:
+                        model_output_data.predict_model(lstm_model_dict['prediction_runs'])
                     model_output_data.agg_prediction_data()
                     model_dfs, trade_dfs = model_output_data.process_prediction_data()
 
                     save_handler.save_all_prediction_data(side, param, test_date, model_dfs, trade_dfs)
+                    if i == 0:
+                        save_handler.save_opt_thres_temp(side, param, test_date,
+                                                         model_output_data.optimal_threshold,
+                                                         model_output_data.optimized_temperature)
                     trade_data.clear_week_trade_data()
-                breakpoint()
 
 if __name__ == '__main__':
     main()

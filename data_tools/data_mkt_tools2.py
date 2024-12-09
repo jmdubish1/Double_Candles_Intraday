@@ -6,7 +6,7 @@ import data_tools.data_trade_tools as tdt
 from sklearn.preprocessing import StandardScaler, OneHotEncoder, RobustScaler, MinMaxScaler
 from datetime import datetime, timedelta
 import warnings
-from multiprocessing import Pool
+import tensorflow as tf
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
@@ -23,6 +23,7 @@ class MktDataHandler:
         self.intradata = None
         self.security_df = None
         self.daily_temp_df = None
+        self.ffd_df = None
 
         self.intra_scaler = None
         self.daily_scaler = None
@@ -53,6 +54,10 @@ class MktDataHandler:
         time_diff = close_time - open_time
         time_interval = int(''.join(filter(str.isdigit, self.data_params.time_frame_test)))
         self.intra_len = int(time_diff/timedelta(minutes=time_interval))
+
+    def load_ffd_table(self):
+        self.ffd_df = pd.read_excel(f'{self.data_params.strat_dat_loc}\\all_FFD_params.xlsx')
+
 
     def load_prep_daily_data(self):
         data_loc = f'{self.data_params.data_loc}'
@@ -122,6 +127,8 @@ class MktDataHandler:
             print(f'...{sec}')
             temp_df = pd.read_csv(f'{data_loc}\\{sec}_{data_end}')
             temp_df = gt.convert_date_time(temp_df)
+            temp_df = temp_df[temp_df['DateTime'] >= pd.to_datetime(self.data_params.start_train_date) -
+                              timedelta(days=90)].reset_index(drop=True)
             if sec == self.data_params.security:
                 self.security_df = temp_df[['DateTime', 'Close']]
 
@@ -141,7 +148,9 @@ class MktDataHandler:
             temp_df = mt.set_various_data(temp_df, sec, 24)
             temp_df = mt.add_high_low_diff(temp_df, sec)
             temp_df = mt.create_rsi(temp_df, sec)
-            temp_df = mt.scale_open_close(temp_df)
+            temp_df = mt.smooth_vol_oi_intra(temp_df, self.daily_temp_df, self.all_secs)
+
+            temp_df = mt.ffd_scale_ohlc(temp_df, self.ffd_df)
 
             dfs.append(temp_df)
 
@@ -171,9 +180,6 @@ class MktDataHandler:
 
         df = gt.sort_data_cols(df)
         df = gt.fill_na_inf(df)
-
-        if not daily:
-            df = mt.smooth_vol_oi_intra(df, self.daily_temp_df, self.all_secs)
 
         for sec in self.all_secs:
             df.drop(columns=[f'{sec}_Vol', f'{sec}_OpenInt'], inplace=True)
@@ -213,13 +219,13 @@ class MktDataHandler:
         self.x_test_daily.iloc[:, 1:] = self.x_test_daily.iloc[:, 1:].astype('float32')
 
         if traintf:
-            if load_scalers and not (i % 4 == 0):
+            if load_scalers:
                 print('Loading Previous X-Scalers')
-                x_train_fit_intra = self.prep_xy_fit_data(self.x_train_intra, test_date)
-                self.intra_scaler.partial_fit(x_train_fit_intra.iloc[:, 1:].values)
-
-                x_train_fit_daily = self.prep_xy_fit_data(self.x_train_daily, test_date)
-                self.daily_scaler.partial_fit(x_train_fit_daily.iloc[:, 1:].values)
+                # x_train_fit_intra = self.prep_xy_fit_data(self.x_train_intra, test_date)
+                # self.intra_scaler.partial_fit(x_train_fit_intra.iloc[:, 1:].values)
+                #
+                # x_train_fit_daily = self.prep_xy_fit_data(self.x_train_daily, test_date)
+                # self.daily_scaler.partial_fit(x_train_fit_daily.iloc[:, 1:].values)
 
             else:
                 print('Creating New X-Scalers')
@@ -253,11 +259,11 @@ class MktDataHandler:
         self.y_test_pnl_df.iloc[:, 1] = self.y_test_pnl_df.iloc[:, 1].astype('float32')
 
         if traintf:
-            if load_scalers and not (i % 4 == 0):
+            if load_scalers:
                 print('Loading Previous PnL-Scalers')
-                y_train_train_fit = self.prep_xy_fit_data(self.y_train_pnl_df, test_date)
-                if len(y_train_train_fit) > 0:
-                    self.y_pnl_scaler.partial_fit(y_train_train_fit.iloc[:, 1].values.reshape(-1, 1))
+                # y_train_train_fit = self.prep_xy_fit_data(self.y_train_pnl_df, test_date)
+                # if len(y_train_train_fit) > 0:
+                #     self.y_pnl_scaler.partial_fit(y_train_train_fit.iloc[:, 1].values.reshape(-1, 1))
 
             else:
                 print('Creating New PnL-Scalers')
@@ -317,58 +323,40 @@ class MktDataHandler:
                 break
 
     def create_batch_input(self, train_inds, daily_len, train=True):
-        with Pool(4) as pool:
-            # Prepare arguments for each train_ind
-            args = [(self, train_ind, daily_len, train) for train_ind in train_inds]
+        while True:
+            y_pnl_df = self.y_train_pnl_df if train else self.y_test_pnl_df
+            y_wl_df = self.y_train_wl_df if train else self.y_test_wl_df
+            x_intraday = self.x_train_intra if train else self.x_test_intra
 
-            # Process in parallel
-            batch_results = pool.map(process_trade, args)
+            x_day_arr, x_intra_arr, y_pnl_arr, y_wl_arr = [], [], [], []
 
-        # Unpack results
-        x_day_arr, x_intra_arr, y_pnl_arr, y_wl_arr = zip(*batch_results)
+            try:
+                for train_ind in train_inds:
+                    x_day, x_intra, y_pnl, y_wl = next(self.grab_prep_trade(y_pnl_df, y_wl_df, x_intraday,
+                                                                            train_ind, daily_len))
+                    x_day_arr.append(x_day)
+                    x_intra_arr.append(x_intra)
+                    y_pnl_arr.append(y_pnl)
+                    y_wl_arr.append(y_wl)
 
-        # Convert to numpy arrays
-        x_day_arr = np.array(x_day_arr).astype(np.float32)
-        x_intra_arr = np.array(x_intra_arr).astype(np.float32)
-        y_pnl_arr = np.array(y_pnl_arr).astype(np.float32)
-        y_wl_arr = np.array(y_wl_arr).astype(np.float32)
+                x_day_arr = tf.convert_to_tensor(x_day_arr, dtype=tf.float32)
+                x_intra_arr = tf.convert_to_tensor(x_intra_arr, dtype=tf.float32)
+                y_pnl_arr = tf.convert_to_tensor(y_pnl_arr, dtype=tf.float32)
+                y_wl_arr = tf.convert_to_tensor(y_wl_arr, dtype=tf.float32)
 
-        yield x_day_arr, x_intra_arr, y_pnl_arr, y_wl_arr
+                # yield x_day_arr, x_intra_arr, y_pnl_arr, y_wl_arr
+                yield (x_day_arr, x_intra_arr), {'wl_class': y_wl_arr, 'pnl': y_pnl_arr}
 
-        # while True:
-        #     if train:
-        #         y_pnl_df = self.y_train_pnl_df
-        #         y_wl_df = self.y_train_wl_df
-        #         x_intraday = self.x_train_intra
-        #     else:
-        #         y_pnl_df = self.y_test_pnl_df
-        #         y_wl_df = self.y_test_wl_df
-        #         x_intraday = self.x_test_intra
-        #
-        #     x_day_arr, x_intra_arr, y_pnl_arr, y_wl_arr = [], [], [], []
-        #
-        #     try:
-        #         for train_ind in train_inds:
-        #             x_day, x_intra, y_pnl, y_wl = next(self.grab_prep_trade(y_pnl_df, y_wl_df, x_intraday,
-        #                                                                     train_ind, daily_len))
-        #             x_day_arr.append(x_day)
-        #             x_intra_arr.append(x_intra)
-        #             y_pnl_arr.append(y_pnl)
-        #             y_wl_arr.append(y_wl)
+            except StopIteration:
+                if x_day_arr:
+                    x_day_arr = tf.convert_to_tensor(x_day_arr, dtype=tf.float32)
+                    x_intra_arr = tf.convert_to_tensor(x_intra_arr, dtype=tf.float32)
+                    y_pnl_arr = tf.convert_to_tensor(y_pnl_arr, dtype=tf.float32)
+                    y_wl_arr = tf.convert_to_tensor(y_wl_arr, dtype=tf.float32)
+                # yield x_day_arr, x_intra_arr, y_pnl_arr, y_wl_arr
+                yield (x_day_arr, x_intra_arr), {'wl_class': y_wl_arr, 'pnl': y_pnl_arr}
 
-                # x_day_arr, x_intra_arr, y_pnl_arr, y_wl_arr = [], [], [], []
-
-            # except StopIteration:
-            #     if x_day_arr:
-            #         x_day_arr = np.array(x_day_arr).astype(np.float32)
-            #         x_intra_arr = np.array(x_intra_arr).astype(np.float32)
-            #         y_pnl_arr = np.array(y_pnl_arr).astype(np.float32)
-            #         y_wl_arr = np.array(y_wl_arr).astype(np.float32)
-            #
-            #     yield x_day_arr, x_intra_arr, y_pnl_arr, y_wl_arr
-            #
-            # break
-
+            break
 
     def subset_start_time(self):
         start_time = pd.Timestamp(f'{self.data_params.start_hour:02}:{self.data_params.start_minute:02}:00').time()
@@ -386,12 +374,3 @@ class MktDataHandler:
         self.x_test_intra = subset_df.drop(columns=['time'])
 
 
-def process_trade(args):
-    obj, train_ind, daily_len, train = args
-    return next(obj.grab_prep_trade(
-        obj.y_train_pnl_df if train else obj.y_test_pnl_df,
-        obj.y_train_wl_df if train else obj.y_test_wl_df,
-        obj.x_train_intra if train else obj.x_test_intra,
-        train_ind,
-        daily_len
-    ))

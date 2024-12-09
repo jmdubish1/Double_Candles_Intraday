@@ -100,7 +100,7 @@ class AlgoParamResults:
     def save_all_params(self, valid_params, side):
         self.params_save_file = \
             f'{self.trade_folder}\\{side}\\{self.data_params.security}_{self.data_params.time_frame_test}'
-        os.makedirs(self.params_save_file, exist_ok=True)
+        # os.makedirs(self.params_save_file, exist_ok=True)
 
         self.pnl_df.to_excel(f'{self.pnl_df_save_file}')
         self.best_params_df.to_excel(f'{self.params_save_file}_best_params.xlsx')
@@ -135,11 +135,28 @@ class AlgoParamResults:
             self.pnl_df[layer] = 0
             self.pnl_df[layer] = self.lstm_model_dict[layer]
             self.pnl_df.loc[self.pnl_df['percentile'] > 0.5, layer] = (
-                    self.pnl_df.loc[self.pnl_df['percentile'] > 0.5, layer] * 1.2)
+                    self.pnl_df.loc[self.pnl_df['percentile'] > 0.5, layer] * 1.05)
             self.pnl_df[layer] = self.pnl_df[layer].astype(int)
 
     def adj_lstm_training_nodes(self, side, param):
         for layer in ['lstm_i1_nodes', 'lstm_i2_nodes', 'dense_m1_nodes', 'dense_wl1_nodes', 'dense_pl1_nodes']:
             self.lstm_model_dict[layer] = self.pnl_df.loc[(self.pnl_df['side'] == side) &
                                                           (self.pnl_df['paramset_id'] == param), layer].iloc[0]
+
+    def get_valid_params(self, side, lstm_model_dict, train_bad_paramsets):
+        good_params = np.array(
+            self.best_params_df.loc[self.best_params_df['side'] == side, 'paramset_id'])
+        other_params = np.array(
+            self.other_params_df.loc[self.other_params_df['side'] == side, 'paramset_id'])
+
+        if train_bad_paramsets:
+            valid_params = np.concatenate((other_params, good_params))
+        else:
+            valid_params = np.concatenate((good_params, lstm_model_dict['chosen_params'][side]))
+
+        valid_params = sorted(np.unique(valid_params).astype(int))
+        self.set_lstm_nodes(lstm_model_dict)
+        self.save_all_params(valid_params, side)
+
+        return valid_params
 

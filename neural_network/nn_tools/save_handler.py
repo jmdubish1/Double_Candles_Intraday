@@ -75,55 +75,59 @@ class SaveHandler:
         print(f'Loading Prior Week Model: {str(last_test_date)}')
 
         class_weights = self.lstm_model.get_class_weights()
-        wce_accuracy = lf.weighted_categorical_crossentropy(class_weights)
+        # wce_accuracy = lf.weighted_categorical_crossentropy(class_weights)
         combined_wl_loss = lf.comb_focal_wce_f1(beta=2.0,
                                                 opt_threshold=threshold,
                                                 class_weights=class_weights)
-        f1_score = lf.beta_f1()
+        # f1_score = lf.beta_f1()
         npv_fn = lf.negative_predictive_value(threshold)
         focal_loss_fn = lf.focal_loss()
         huber_loss = lf.weighted_huber_loss()
         auc = lf.weighted_auc(class_weights)
+        ppv_fn = lf.positive_predictive_value(threshold)
 
         self.lstm_model.model = (
             keras.models.load_model(f'{self.previous_model_path}\\model.keras',
                                     custom_objects={'focal_loss_fixed': focal_loss_fn,
                                                     'combined_wl_loss': combined_wl_loss,
-                                                    'wce_loss': wce_accuracy,
-                                                    'f1_score': f1_score,
+                                                    # 'wce_loss': wce_accuracy,
+                                                    # 'f1_score': f1_score,
                                                     'npv': npv_fn,
-                                                    'bal_accuracy': lf.bal_accuracy,
+                                                    'ppv': ppv_fn,
+                                                    # 'bal_accuracy': lf.bal_accuracy,
                                                     'auc_loss': auc,
-                                                    'recall': Recall(thresholds=threshold, name='recall'),
-                                                    'huber_loss': huber_loss,
+                                                    # 'recall': Recall(thresholds=threshold, name='recall'),
+                                                    # 'huber_loss': huber_loss,
                                                     'TemperatureScalingLayer': TemperatureScalingLayer
                                                     }))
 
     def load_current_test_date_model(self):
-        print(f'Loading Current Week Model: {self.test_date}')
+        print(f'Loading Current Week Model: {self.lstm_model.side}: {self.lstm_model.param}: {self.test_date}')
         threshold = self.lstm_model.opt_threshold
         class_weights = self.lstm_model.get_class_weights()
         focal_loss_fn = lf.focal_loss()
         combined_wl_loss = lf.comb_focal_wce_f1(beta=2.0,
                                                 opt_threshold=threshold,
                                                 class_weights=class_weights)
-        f1_score = lf.beta_f1()
+        # f1_score = lf.beta_f1()
         npv_fn = lf.negative_predictive_value(threshold)
-        wce_accuracy = lf.weighted_categorical_crossentropy(class_weights)
+        # wce_accuracy = lf.weighted_categorical_crossentropy(class_weights)
         huber_loss = lf.weighted_huber_loss()
         auc = lf.weighted_auc(class_weights)
+        ppv_fn = lf.positive_predictive_value(threshold)
 
         self.lstm_model.model = (
             keras.models.load_model(f'{self.model_save_path}\\model.keras',
                                     custom_objects={'focal_loss_fixed': focal_loss_fn,
                                                     'combined_wl_loss': combined_wl_loss,
-                                                    'wce_loss': wce_accuracy,
-                                                    'f1_score': f1_score,
+                                                    # 'wce_loss': wce_accuracy,
+                                                    # 'f1_score': f1_score,
                                                     'npv': npv_fn,
-                                                    'bal_accuracy': lf.bal_accuracy,
+                                                    'ppv': ppv_fn,
+                                                    # 'bal_accuracy': lf.bal_accuracy,
                                                     'auc_loss': auc,
-                                                    'recall': Recall(thresholds=threshold, name='recall'),
-                                                    'huber_loss': huber_loss,
+                                                    # 'recall': Recall(thresholds=threshold, name='recall'),
+                                                    # 'huber_loss': huber_loss,
                                                     'TemperatureScalingLayer': TemperatureScalingLayer
                                                     }))
         self.lstm_model.model.load_weights(f'{self.model_save_path}\\model.keras')
@@ -170,7 +174,7 @@ class SaveHandler:
         self.save_metrics(side, param, test_date, model_dfs, 'Model')
         self.save_metrics(side, param, test_date, trade_dfs[0], 'WL')
         self.save_metrics(side, param, test_date, trade_dfs[1], 'PnL')
-        if self.process_handler.train_modeltf:
+        if self.process_handler.train_modeltf and not self.process_handler.retraintf:
             self.save_plot_to_excel(side)
 
     def save_metrics(self, side, param, test_date, dfs, sheet_name, stack_row=False):
@@ -204,7 +208,7 @@ class SaveHandler:
             wb = openpyxl.load_workbook(self.save_file)
 
         # Select a sheet or create a new one
-        sheet_name = f'{side}_Model'
+        sheet_name = f'{side}_LR_Curve'
         if sheet_name in wb.sheetnames:
             ws = wb[sheet_name]
         else:
@@ -216,14 +220,37 @@ class SaveHandler:
         img = Image(img_loc)
 
         plot_loc_excel = 'F2'
-        if file_exists:
-            plot_loc_excel = 'F12'
         ws.add_image(img, plot_loc_excel)
 
         wb.save(self.save_file)
 
         if os.path.exists(img_loc):
             os.remove(img_loc)
+
+    def save_opt_thres_temp(self, side, param, test_date, opt_threshold, opt_temp):
+        temp_df = pd.DataFrame([[side, param, test_date, opt_threshold, opt_temp]],
+                               columns=['side', 'paramset_id', 'test_date', 'opt_threshold', 'opt_temp'])
+
+        opt_thres_file = f'{self.param_folder}\\best_thresholds.xlsx'
+
+        if os.path.exists(opt_thres_file):
+            try:
+                existing_data = pd.read_excel(opt_thres_file, engine='openpyxl')
+            except Exception as e:
+                print(f"Error loading the existing Excel file: {e}")
+                return
+
+            if param in existing_data['paramset_id'].values:
+                # Update the existing row
+                existing_data.loc[existing_data['paramset_id'] == param, :] = temp_df.values[0]
+            else:
+                # Append the new row
+                existing_data = pd.concat([existing_data, temp_df], ignore_index=True)
+
+            existing_data.to_excel(opt_thres_file, index=False, engine='openpyxl')
+            # File doesn't exist, create it
+        else:
+            temp_df.to_excel(opt_thres_file, index=False, engine='openpyxl')
 
 
 def write_metrics_to_excel(writer, dfs, sheet_name, start_positions):

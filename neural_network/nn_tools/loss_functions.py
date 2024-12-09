@@ -7,7 +7,6 @@ from tensorflow.keras.metrics import Precision, Recall
 
 def weighted_categorical_crossentropy(class_weights):
     def wce_loss(y_true, y_pred):
-        y_true = tf.cast(y_true, tf.float32)
 
         weights_tensor = tf.constant(class_weights, dtype=tf.float32)
         weights_tensor = tf.reshape(weights_tensor, (1, -1))  # Shape: (1, num_classes)
@@ -51,7 +50,6 @@ def opt_sensitivity(optimal_threshold=0.5):
 
 
 def bal_accuracy(y_true, y_pred):
-    # Convert predictions to binary using a threshold of 0.5 (or adjust as needed)
     y_pred_binary = tf.cast(y_pred >= 0.5, tf.float32)
 
     # Calculate True Positives, True Negatives, False Positives, False Negatives
@@ -71,20 +69,23 @@ def bal_accuracy(y_true, y_pred):
     return (1 - balanced_acc) + K.epsilon()
 
 
-def focal_loss(gamma=2.2, alpha=0.4):
+def focal_loss(gamma=1.5, alpha=0.3):
     def focal_loss_fixed(y_true, y_pred):
+        gamma_value = gamma
+        alpha_value = alpha
+
         y_true = tf.convert_to_tensor(y_true, dtype=tf.float32)
         y_pred = tf.convert_to_tensor(y_pred, dtype=tf.float32)
         epsilon = tf.keras.backend.epsilon()
         y_pred = tf.clip_by_value(y_pred, epsilon, 1 - epsilon)
-        cross_entropy_pos = -y_true * tf.math.pow(1 - y_pred, gamma) * tf.math.log(y_pred)
-        cross_entropy_neg = -(1 - y_true) * tf.math.pow(y_pred, gamma) * tf.math.log(1 - y_pred)
+
+        cross_entropy_pos = -y_true * tf.math.pow(1 - y_pred, gamma_value) * tf.math.log(y_pred)
+        cross_entropy_neg = -(1 - y_true) * tf.math.pow(y_pred, gamma_value) * tf.math.log(1 - y_pred)
 
         # Weighted focal loss (balancing factor alpha)
-        loss = tf.sqrt(alpha * cross_entropy_pos + (1 - alpha) * cross_entropy_neg)
+        loss = tf.sqrt(alpha_value * cross_entropy_pos + (1 - alpha_value) * cross_entropy_neg)
 
         return tf.reduce_mean(loss)
-
     return focal_loss_fixed
 
 
@@ -92,7 +93,6 @@ def beta_f1(beta=1.0, opt_threshold=0.5):
     b2 = beta**2
 
     def f1_score(y_true, y_pred):
-        # Threshold predictions
         y_pred = tf.cast(y_pred >= opt_threshold, tf.float32)
 
         # Calculate true positives, false positives, and false negatives
@@ -103,8 +103,6 @@ def beta_f1(beta=1.0, opt_threshold=0.5):
         # Precision and Recall
         precision = tp / (tp + fp + tf.keras.backend.epsilon())
         recall = tp / (tp + fn + tf.keras.backend.epsilon())
-
-        # F-beta Score
         f1 = (1 + b2) * (precision * recall) / (b2 * precision + recall + tf.keras.backend.epsilon())
 
         return f1
@@ -115,8 +113,6 @@ def beta_f1(beta=1.0, opt_threshold=0.5):
 def negative_predictive_value(opt_threshold=0.5):
     def npv(y_true, y_pred):
         y_pred = tf.cast(y_pred >= opt_threshold, tf.float32)
-
-        # Calculate true negatives, Calculate false negatives
         true_negatives = tf.reduce_sum((1 - y_true) * (1 - y_pred))
         false_negatives = tf.reduce_sum(y_true * (1 - y_pred))
 
@@ -126,6 +122,20 @@ def negative_predictive_value(opt_threshold=0.5):
         return np_value
 
     return npv
+
+
+def positive_predictive_value(opt_threshold=0.5):
+    def ppv(y_true, y_pred):
+        y_pred = tf.cast(y_pred >= opt_threshold, tf.float32)
+        tp = tf.reduce_sum(y_true * y_pred)
+        fp = tf.reduce_sum(y_pred) - tp
+        # Compute Negative Predictive Value
+
+        np_value = tp / (tp + fp + tf.keras.backend.epsilon())
+
+        return np_value
+
+    return ppv
 
 
 def weighted_auc(class_weights):
@@ -138,11 +148,17 @@ def weighted_auc(class_weights):
         y_true: Ground truth labels, expected to be 0 or 1.
         y_pred: Predicted probabilities (output of the model).
         """
-        y_true = tf.cast(y_true, tf.float32)
+        # Create masks for positive and negative samples
+        pos_mask = tf.equal(tf.argmax(y_true, axis=-1), 1)  # Mask for positive samples
+        neg_mask = tf.equal(tf.argmax(y_true, axis=-1), 0)  # Mask for negative samples
 
-        # Separate positive and negative samples
-        pos_pred = y_pred[y_true == 1]
-        neg_pred = y_pred[y_true == 0]
+        # Apply boolean masks to extract positive and negative predictions
+        pos_pred = tf.boolean_mask(y_pred[:, 1], pos_mask)  # Positive class probabilities
+        neg_pred = tf.boolean_mask(y_pred[:, 1], neg_mask)  # Negative class probabilities
+
+        # Handle case where no positive or negative samples exist
+        def safe_mean(tensor):
+            return tf.reduce_mean(tensor) if tf.size(tensor) > 0 else tf.constant(0.0, dtype=tf.float32)
 
         # Compute pairwise differences: positive - negative
         pairwise_diff = tf.expand_dims(pos_pred, axis=1) - tf.expand_dims(neg_pred, axis=0)
@@ -150,12 +166,12 @@ def weighted_auc(class_weights):
         # Sigmoid for differentiable approximation of the step function
         surrogate_loss = tf.nn.sigmoid(-pairwise_diff)
 
-        # Apply weights
+        # Apply weights (if using weights for positive/negative pairs)
         pair_weights = pos_weight * neg_weight  # Pair weight for positive-negative combinations
         weighted_loss = surrogate_loss * pair_weights
 
         # Average loss over all pairs
-        loss = tf.reduce_mean(weighted_loss)
+        loss = safe_mean(weighted_loss)
 
         return loss
 
@@ -170,24 +186,31 @@ def comb_focal_wce_f1(beta=1.0, opt_threshold=0.5, class_weights=(0.9, 1.5)):
     f1_score_fn = beta_f1(beta, opt_threshold)
     auc_fn = weighted_auc(class_weights)
     npv_fn = negative_predictive_value(opt_threshold)
+    ppv_fn = positive_predictive_value(opt_threshold)
 
     def combined_wl_loss(y_true, y_pred):
+        y_true = tf.cast(y_true, tf.float32)
+        y_pred = tf.cast(y_pred, tf.float32)
+
         # Calculate individual losses
         loss_fl = focal_loss()(y_true, y_pred)
-        wce_loss = loss_wce_fn(y_true, y_true)
+        wce_loss = loss_wce_fn(y_true, y_pred)
         f1_loss = tf.math.log1p(1 - f1_score_fn(y_true, y_pred))
         auc_loss = auc_fn(y_true, y_pred)
         npv_loss = tf.math.log1p(1 - npv_fn(y_true, y_pred))
+        ppv_loss = tf.math.log1p(1 - ppv_fn(y_true, y_pred))
 
         # Weighted sum of the losses
         weight_fl = 1.0
-        weight_f1 = 1.5
-        weight_wce = 1.0
-        weight_auc = 1.5
-        weight_npv = 2.0
+        weight_f1 = 0.5
+        weight_wce = 2.0
+        weight_auc = 0.5
+        weight_npv = 0.5
+        weight_ppv = 0.5
 
         combined_loss_value = (weight_fl * loss_fl + weight_wce * wce_loss +
-                               weight_f1 * f1_loss + weight_auc * auc_loss + weight_npv * npv_loss)
+                               weight_f1 * f1_loss + weight_auc * auc_loss +
+                                weight_npv * npv_loss + weight_ppv * ppv_loss)
 
         return combined_loss_value
 
@@ -265,7 +288,7 @@ def combined_wl_loss_fn():
 
 def weighted_huber_loss(delta=1.5, weight=1.5):
     def huber_loss(y_true, y_pred):
-        error = (y_pred - y_true) * 10
+        error = (y_pred - y_true)
         abs_error = tf.math.abs(error)
 
         # Penalize if prediction is on the wrong side of zero
